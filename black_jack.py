@@ -852,65 +852,7 @@ def game_advice_mode():
             else:
                 print("BUSTED")
 
-            # Dealer cards for outcome determination
-            print(f"\nDealer cards:")
-            hole_input = input("Hole card (or 'skip'): ").strip().upper()
-            if hole_input not in ['BACK', 'SKIP', '']:
-                if validate_card(hole_input):
-                    dealer_hole = hole_input
-                    
-                    dealer_hand_cards = [dealer_card, dealer_hole]
-                    dealer_temp_hand = Hand(dealer_hand_cards)
-                    
-                    needs_to_hit = (dealer_temp_hand.value < 17 or 
-                                  (dealer_temp_hand.is_soft and dealer_temp_hand.value == 17 and rules.dealer_hits_soft_17))
-                    
-                    if needs_to_hit:
-                        additional_input = input("Additional cards (or 'none'): ").strip().upper()
-                        if additional_input not in ['BACK', 'NONE', '']:
-                            additional_cards = [c.strip() for c in additional_input.split(',')]
-                            if all(validate_card(card) for card in additional_cards):
-                                # Add additional cards to dealer hand
-                                for card in additional_cards:
-                                    dealer_temp_hand.add_card(card)
-                    
-                    # Determine outcome
-                    print(f"\nDealer final hand: {dealer_temp_hand}")
-                    outcome = game.determine_hand_outcome(player_hand, dealer_temp_hand)
-                    result = game._determine_winner(player_hand, dealer_temp_hand)
-                    
-                    # Track the result
-                    game_stats.add_result(result)
-                    
-                    # Update bankroll
-                    old_bankroll = bankroll
-                    bankroll += result
-                    
-                    # Display outcome with color coding and bankroll changes
-                    if "WIN" in outcome:
-                        print(f"🎉 RESULT: {outcome} (+R{result})")
-                    elif "LOSS" in outcome:
-                        print(f"❌ RESULT: {outcome} (R{result})")
-                    else:
-                        print(f"🤝 RESULT: {outcome} (R{result})")
-                    
-                    # Bankroll display
-                    bankroll_change = bankroll - old_bankroll
-                    if bankroll_change > 0:
-                        print(f"💰 BANKROLL: R{old_bankroll} → R{bankroll} (+R{bankroll_change})")
-                    elif bankroll_change < 0:
-                        print(f"💰 BANKROLL: R{old_bankroll} → R{bankroll} (R{bankroll_change})")
-                    else:
-                        print(f"💰 BANKROLL: R{bankroll} (no change)")
-                    
-                    # Quick stats summary
-                    win_pct = game_stats.get_win_percentage()
-                    print(f"Session: {game_stats.total_hands} hands, {win_pct:.1f}% win rate")
-                    
-                    # Check for bankruptcy
-                    if bankroll <= 0:
-                        print("\n🚨 BANKRUPT! Game Over!")
-                        print("Type 'back' to return to menu or continue analyzing hands without bankroll tracking.")
+
 
             print()
 
