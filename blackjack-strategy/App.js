@@ -22,12 +22,57 @@ export default function App() {
   const [recommendation, setRecommendation] = useState(null);
   const [strategy, setStrategy] = useState(null);
   const [showRecommendationModal, setShowRecommendationModal] = useState(false);
+  const [showRoundCompleteModal, setShowRoundCompleteModal] = useState(false);
+  
+  // Card counting state
+  const [runningCount, setRunningCount] = useState(0);
+  const [cardsSeen, setCardsSeen] = useState(0);
+  const [decksRemaining, setDecksRemaining] = useState(null);
+  
+  // Round completion state
+  const [dealerHoleCard, setDealerHoleCard] = useState(null);
+  const [additionalCards, setAdditionalCards] = useState([]);
+  const [roundStep, setRoundStep] = useState(0); // 0: dealer hole card, 1: additional cards, 2: betting recommendation
 
   useEffect(() => {
     if (deckSize) {
       setStrategy(new BasicStrategy(true));
+      setDecksRemaining(deckSize);
+      setRunningCount(0);
+      setCardsSeen(0);
     }
   }, [deckSize]);
+
+  // Hi-Lo card counting system
+  const getCardCountValue = (card) => {
+    if (['2', '3', '4', '5', '6'].includes(card)) {
+      return 1; // Low cards
+    } else if (['7', '8', '9'].includes(card)) {
+      return 0; // Neutral cards
+    } else if (['10', 'J', 'Q', 'K', 'A'].includes(card)) {
+      return -1; // High cards
+    }
+    return 0;
+  };
+
+  // Calculate true count
+  const getTrueCount = () => {
+    if (decksRemaining <= 0) return 0;
+    return Math.round(runningCount / decksRemaining);
+  };
+
+  // Update card count when cards are played
+  const updateCardCount = (card) => {
+    const countValue = getCardCountValue(card);
+    setRunningCount(prev => prev + countValue);
+    setCardsSeen(prev => prev + 1);
+    
+    // Update decks remaining (52 cards per deck)
+    const totalCards = deckSize * 52;
+    const newCardsSeen = cardsSeen + 1;
+    const newDecksRemaining = Math.max(0.5, (totalCards - newCardsSeen) / 52);
+    setDecksRemaining(newDecksRemaining);
+  };
 
   useEffect(() => {
     if (playerCards.length > 0 && dealerCard && strategy) {
@@ -49,6 +94,7 @@ export default function App() {
   const addPlayerCard = (card) => {
     if (playerCards.length < 5) {
       setPlayerCards([...playerCards, card]);
+      updateCardCount(card);
     }
   };
 
@@ -59,6 +105,7 @@ export default function App() {
 
   const selectDealerCard = (card) => {
     setDealerCard(card);
+    updateCardCount(card);
   };
 
   const resetHand = () => {
@@ -66,6 +113,92 @@ export default function App() {
     setDealerCard(null);
     setRecommendation(null);
     setShowRecommendationModal(false);
+  };
+
+  const resetCount = () => {
+    setRunningCount(0);
+    setCardsSeen(0);
+    setDecksRemaining(deckSize);
+  };
+
+  // Handle round completion
+  const completeRound = () => {
+    setShowRecommendationModal(false);
+    setRoundStep(0); // Start with dealer hole card
+    setShowRoundCompleteModal(true);
+  };
+
+  const finishRound = () => {
+    // Count dealer hole card if selected
+    if (dealerHoleCard) {
+      updateCardCount(dealerHoleCard);
+    }
+    
+    // Count all additional cards
+    additionalCards.forEach(card => {
+      updateCardCount(card);
+    });
+
+    // Reset round state
+    setDealerHoleCard(null);
+    setAdditionalCards([]);
+    setRoundStep(0);
+    setShowRoundCompleteModal(false);
+    
+    // Start new hand
+    resetHand();
+  };
+
+  const nextStep = () => {
+    if (roundStep < 2) {
+      setRoundStep(roundStep + 1);
+    }
+  };
+
+  const prevStep = () => {
+    if (roundStep > 0) {
+      setRoundStep(roundStep - 1);
+    }
+  };
+
+  const skipStep = () => {
+    nextStep();
+  };
+
+  const addAdditionalCard = (card) => {
+    setAdditionalCards([...additionalCards, card]);
+  };
+
+  const removeAdditionalCard = (index) => {
+    const newCards = additionalCards.filter((_, i) => i !== index);
+    setAdditionalCards(newCards);
+  };
+
+  // Betting recommendation based on true count
+  const getBettingRecommendation = () => {
+    const trueCount = getTrueCount();
+    if (trueCount >= 2) {
+      return {
+        action: "INCREASE BET",
+        multiplier: Math.min(trueCount, 8), // Cap at 8x
+        message: `True count is +${trueCount}. Increase your bet to ${Math.min(trueCount, 8)}x your base bet.`,
+        color: '#4ECDC4'
+      };
+    } else if (trueCount <= -2) {
+      return {
+        action: "MIN BET",
+        multiplier: 1,
+        message: `True count is ${trueCount}. Stick to minimum bet or consider leaving.`,
+        color: '#FF6B6B'
+      };
+    } else {
+      return {
+        action: "NORMAL BET",
+        multiplier: 1,
+        message: `True count is ${trueCount}. Use your normal betting unit.`,
+        color: '#95A5A6'
+      };
+    }
   };
 
   const getActionColor = (action) => {
@@ -126,6 +259,12 @@ export default function App() {
           <Text style={styles.note}>
             Most casinos use 6-8 decks. Single deck offers best odds for players.
           </Text>
+          
+          {deckSize && (
+            <TouchableOpacity style={styles.resetCountButton} onPress={resetCount}>
+              <Text style={styles.resetCountButtonText}>Reset Count</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </SafeAreaView>
     );
@@ -140,6 +279,35 @@ export default function App() {
         <View style={styles.header}>
           <Text style={styles.title}>Basic Strategy Helper</Text>
           <Text style={styles.subtitle}>{deckSize} Deck{deckSize > 1 ? 's' : ''}</Text>
+          
+          {/* Card Counting Display */}
+          <View style={styles.countingSection}>
+            <View style={styles.countRow}>
+              <View style={styles.countItem}>
+                <Text style={styles.countLabel}>Running Count</Text>
+                <Text style={styles.countValue}>
+                  {runningCount > 0 ? '+' : ''}{runningCount}
+                </Text>
+              </View>
+              <View style={styles.countItem}>
+                <Text style={styles.countLabel}>True Count</Text>
+                <Text style={styles.countValue}>
+                  {getTrueCount() > 0 ? '+' : ''}{getTrueCount()}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.countRow}>
+              <View style={styles.countItem}>
+                <Text style={styles.countLabel}>Cards Seen</Text>
+                <Text style={styles.countValue}>{cardsSeen}</Text>
+              </View>
+              <View style={styles.countItem}>
+                <Text style={styles.countLabel}>Decks Left</Text>
+                <Text style={styles.countValue}>{decksRemaining?.toFixed(1)}</Text>
+              </View>
+            </View>
+
+          </View>
         </View>
 
         {/* Player Cards Section */}
@@ -336,11 +504,152 @@ export default function App() {
                 
                 <TouchableOpacity
                   style={styles.continueButton}
-                  onPress={resetHand}
+                  onPress={completeRound}
                 >
-                  <Text style={styles.continueButtonText}>Continue</Text>
+                  <Text style={styles.continueButtonText}>Complete Round</Text>
                 </TouchableOpacity>
               </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Round Complete Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showRoundCompleteModal}
+        onRequestClose={() => setShowRoundCompleteModal(false)}
+      >
+        <View style={styles.bottomSheetOverlay}>
+          <TouchableOpacity 
+            style={styles.bottomSheetBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowRoundCompleteModal(false)}
+          />
+          <View style={styles.bottomSheetContent}>
+            <View style={styles.bottomSheetHandle} />
+            
+            <ScrollView style={styles.bottomSheetScroll}>
+              {/* Step 0: Dealer Hole Card */}
+              {roundStep === 0 && (
+                <>
+                  <Text style={styles.bottomSheetTitle}>Dealer's Hole Card</Text>
+                  
+                  <View style={styles.selectedCards}>
+                    {dealerHoleCard ? (
+                      <TouchableOpacity
+                        style={[styles.selectedCardChip, styles.dealerChip]}
+                        onPress={() => setDealerHoleCard(null)}
+                      >
+                        <Text style={styles.selectedCardChipText}>{dealerHoleCard}</Text>
+                        <Text style={styles.removeText}>×</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <Text style={styles.placeholder}>Select card</Text>
+                    )}
+                  </View>
+                  
+                  <View style={styles.bottomSheetCardGrid}>
+                    {CARDS.map(card => (
+                      <TouchableOpacity
+                        key={card}
+                        style={[
+                          styles.bottomSheetCard,
+                          dealerHoleCard === card && styles.selectedCard
+                        ]}
+                        onPress={() => setDealerHoleCard(card)}
+                      >
+                        <Text style={styles.bottomSheetCardText}>{card}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <View style={styles.stepButtons}>
+                    <TouchableOpacity style={styles.skipButton} onPress={skipStep}>
+                      <Text style={styles.skipButtonText}>Skip</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.nextButton} onPress={nextStep}>
+                      <Text style={styles.nextButtonText}>Next</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {/* Step 1: Additional Cards */}
+              {roundStep === 1 && (
+                <>
+                  <Text style={styles.bottomSheetTitle}>Additional Cards</Text>
+                  
+                  <View style={styles.selectedCards}>
+                    {additionalCards.map((card, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.selectedCardChip}
+                        onPress={() => removeAdditionalCard(index)}
+                      >
+                        <Text style={styles.selectedCardChipText}>{card}</Text>
+                        <Text style={styles.removeText}>×</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {additionalCards.length === 0 && (
+                      <Text style={styles.placeholder}>No additional cards</Text>
+                    )}
+                  </View>
+                  
+                  <View style={styles.bottomSheetCardGrid}>
+                    {CARDS.map(card => (
+                      <TouchableOpacity
+                        key={card}
+                        style={styles.bottomSheetCard}
+                        onPress={() => addAdditionalCard(card)}
+                      >
+                        <Text style={styles.bottomSheetCardText}>{card}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <View style={styles.stepButtons}>
+                    <TouchableOpacity style={styles.backButton} onPress={prevStep}>
+                      <Text style={styles.backButtonText}>Back</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.nextButton} onPress={nextStep}>
+                      <Text style={styles.nextButtonText}>Next</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {/* Step 2: Betting Recommendation */}
+              {roundStep === 2 && (
+                <>
+                  <Text style={styles.bottomSheetTitle}>Next Bet</Text>
+                  
+                  {(() => {
+                    const bettingRec = getBettingRecommendation();
+                    return (
+                      <View style={[styles.bettingCard, { backgroundColor: bettingRec.color }]}>
+                        <Text style={styles.bettingAction}>{bettingRec.action}</Text>
+                        <Text style={styles.bettingMessage}>{bettingRec.message}</Text>
+                        {bettingRec.multiplier > 1 && (
+                          <Text style={styles.bettingMultiplier}>
+                            Bet Multiplier: {bettingRec.multiplier}x
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })()}
+                  
+                  <View style={styles.stepButtons}>
+                    <TouchableOpacity style={styles.backButton} onPress={prevStep}>
+                      <Text style={styles.backButtonText}>Back</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.finishRoundButton} onPress={finishRound}>
+                      <Text style={styles.finishRoundButtonText}>Start Next Hand</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -367,6 +676,47 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     marginBottom: 30,
+  },
+  countingSection: {
+    marginTop: 20,
+    backgroundColor: '#16213e',
+    borderRadius: 15,
+    padding: 15,
+    width: '100%',
+  },
+  countRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 15,
+  },
+  countItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  countLabel: {
+    fontSize: 12,
+    color: '#bbb',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  countValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: '#ffffff',
+  },
+  resetCountButton: {
+    backgroundColor: '#FF6B6B',
+    paddingHorizontal: 25,
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignSelf: 'center',
+    marginTop: 25,
+  },
+  resetCountButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   title: {
     fontSize: 28,
@@ -682,6 +1032,102 @@ const styles = StyleSheet.create({
     flex: 0.4,
   },
   continueButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  // Round Complete Modal Styles
+  bettingCard: {
+    padding: 20,
+    borderRadius: 15,
+    alignItems: 'center',
+  },
+  bettingAction: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  bettingMessage: {
+    color: '#ffffff',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  bettingMultiplier: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  cancelButton: {
+    backgroundColor: '#95A5A6',
+    paddingHorizontal: 25,
+    paddingVertical: 12,
+    borderRadius: 10,
+    flex: 0.4,
+  },
+  cancelButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  finishRoundButton: {
+    backgroundColor: '#4ECDC4',
+    paddingHorizontal: 25,
+    paddingVertical: 12,
+    borderRadius: 10,
+    flex: 0.4,
+  },
+  finishRoundButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  // Step Navigation Styles
+  stepButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 30,
+    marginBottom: 20,
+  },
+  skipButton: {
+    backgroundColor: '#95A5A6',
+    paddingHorizontal: 25,
+    paddingVertical: 12,
+    borderRadius: 10,
+    flex: 0.4,
+  },
+  skipButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  nextButton: {
+    backgroundColor: '#4ECDC4',
+    paddingHorizontal: 25,
+    paddingVertical: 12,
+    borderRadius: 10,
+    flex: 0.4,
+  },
+  nextButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  backButton: {
+    backgroundColor: '#95A5A6',
+    paddingHorizontal: 25,
+    paddingVertical: 12,
+    borderRadius: 10,
+    flex: 0.4,
+  },
+  backButtonText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
