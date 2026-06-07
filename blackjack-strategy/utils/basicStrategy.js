@@ -58,6 +58,10 @@ export class Hand {
   checkIsPair() {
     return this.cards.length === 2 && this.cards[0] === this.cards[1];
   }
+
+  get isBusted() {
+    return this.value > 21;
+  }
 }
 
 export class BasicStrategy {
@@ -65,21 +69,22 @@ export class BasicStrategy {
     this.dealerHitsSoft17 = dealerHitsSoft17;
   }
 
-  getRecommendation(playerHand, dealerCard) {
+  getBasicRecommendation(playerHand, dealerCard) {
     const dealerValue = this.getCardValue(dealerCard);
 
-    // Check for pairs first
     if (playerHand.isPair) {
       return this.getPairStrategy(playerHand.cards[0], dealerValue);
     }
 
-    // Check for soft hands
     if (playerHand.issoft) {
       return this.getSoftStrategy(playerHand.value, dealerValue);
     }
 
-    // Hard hands
     return this.getHardStrategy(playerHand.value, dealerValue);
+  }
+
+  getRecommendation(playerHand, dealerCard) {
+    return this.getBasicRecommendation(playerHand, dealerCard);
   }
 
   getCardValue(card) {

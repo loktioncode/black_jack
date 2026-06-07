@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { 
   StyleSheet, 
@@ -7,11 +7,16 @@ import {
   TouchableOpacity, 
   Modal,
   ScrollView,
-  SafeAreaView
+  SafeAreaView,
+  Alert,
+  Switch,
 } from 'react-native';
 import { BasicStrategy, Hand, Actions, getActionDescription } from './utils/basicStrategy';
+import { CardCounter, getAdjustedRecommendation, formatCountLabel } from './utils/cardCounting';
 
 const CARDS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+const HANDS_BEFORE_COUNTING_PROMPT = 10;
+const BUST_AUTO_RESET_MS = 2500;
 
 export default function App() {
   const [deckSize, setDeckSize] = useState(null);
@@ -19,55 +24,146 @@ export default function App() {
   const [playerCards, setPlayerCards] = useState([]);
   const [dealerCard, setDealerCard] = useState(null);
   const [recommendation, setRecommendation] = useState(null);
+  const [deviationInfo, setDeviationInfo] = useState(null);
   const [strategy, setStrategy] = useState(null);
+  const [cardCounter, setCardCounter] = useState(null);
+  const [handsPlayed, setHandsPlayed] = useState(0);
+  const [cardCountingEnabled, setCardCountingEnabled] = useState(false);
+  const [hasShownCountingPrompt, setHasShownCountingPrompt] = useState(false);
+  const [isBusted, setIsBusted] = useState(false);
   const [showRecommendationModal, setShowRecommendationModal] = useState(false);
-
+  const finishingHandRef = useRef(false);
 
   useEffect(() => {
     if (deckSize) {
       setStrategy(new BasicStrategy(true));
+      setCardCounter(new CardCounter(deckSize));
     }
   }, [deckSize]);
 
+  const clearCurrentHand = useCallback(() => {
+    setPlayerCards([]);
+    setDealerCard(null);
+    setRecommendation(null);
+    setDeviationInfo(null);
+    setIsBusted(false);
+    setShowRecommendationModal(false);
+    finishingHandRef.current = false;
+  }, []);
 
+  const maybePromptCardCounting = useCallback((newHandsPlayed) => {
+    setHasShownCountingPrompt((shown) => {
+      if (newHandsPlayed >= HANDS_BEFORE_COUNTING_PROMPT && !shown) {
+        Alert.alert(
+          'Try count-adjusted strategy?',
+          `You've played ${newHandsPlayed} hands. Turn on the switch below to blend Hi-Lo (RC/TC) with basic strategy — we never recommend counting-only plays.`,
+          [
+            { text: 'Got it', style: 'cancel' },
+            { text: 'Turn On', onPress: () => setCardCountingEnabled(true) },
+          ]
+        );
+        return true;
+      }
+      return shown;
+    });
+  }, [deckSize]);
+
+  const finishHand = useCallback(() => {
+    if (finishingHandRef.current) return;
+    finishingHandRef.current = true;
+
+    const cardsToTrack = [...playerCards];
+    if (dealerCard) cardsToTrack.push(dealerCard);
+
+    if (cardsToTrack.length > 0) {
+      setCardCounter((prev) => {
+        const next = prev ? new CardCounter(deckSize) : new CardCounter(deckSize);
+        if (prev) {
+          next.runningCount = prev.runningCount;
+          next.cardsSeen = [...prev.cardsSeen];
+        }
+        next.addCards(cardsToTrack);
+        return next;
+      });
+    }
+
+    setHandsPlayed((prev) => {
+      const next = prev + 1;
+      maybePromptCardCounting(next);
+      return next;
+    });
+
+    clearCurrentHand();
+  }, [playerCards, dealerCard, deckSize, maybePromptCardCounting, clearCurrentHand]);
 
   useEffect(() => {
     if (playerCards.length > 0 && dealerCard && strategy) {
       const hand = new Hand(playerCards);
-      const rec = strategy.getRecommendation(hand, dealerCard);
-      setRecommendation(rec);
+
+      if (hand.isBusted) {
+        setIsBusted(true);
+        setRecommendation(null);
+        setDeviationInfo(null);
+        setShowRecommendationModal(true);
+        return;
+      }
+
+      setIsBusted(false);
+      const trueCount = cardCountingEnabled && cardCounter ? cardCounter.trueCount : null;
+      const result = getAdjustedRecommendation(strategy, hand, dealerCard, trueCount);
+      setRecommendation(result.action);
+      setDeviationInfo(result.deviated ? result : null);
       setShowRecommendationModal(true);
-    } else {
+    } else if (!isBusted) {
       setRecommendation(null);
-      setShowRecommendationModal(false);
+      setDeviationInfo(null);
+      if (playerCards.length === 0) {
+        setShowRecommendationModal(false);
+      }
     }
-  }, [playerCards, dealerCard, strategy]);
+  }, [playerCards, dealerCard, strategy, cardCountingEnabled, cardCounter, isBusted]);
+
+  useEffect(() => {
+    if (!isBusted) return;
+
+    const timer = setTimeout(() => finishHand(), BUST_AUTO_RESET_MS);
+    return () => clearTimeout(timer);
+  }, [isBusted, finishHand]);
 
   const selectDeckSize = (size) => {
     setDeckSize(size);
     setShowDeckSelector(false);
+    setHandsPlayed(0);
+    setHasShownCountingPrompt(false);
   };
 
   const addPlayerCard = (card) => {
-    if (playerCards.length < 5) {
+    if (playerCards.length < 5 && !isBusted) {
       setPlayerCards([...playerCards, card]);
     }
   };
 
   const removePlayerCard = (index) => {
+    if (isBusted) return;
     const newCards = playerCards.filter((_, i) => i !== index);
     setPlayerCards(newCards);
+    setIsBusted(false);
   };
 
   const selectDealerCard = (card) => {
-    setDealerCard(card);
+    if (!isBusted) setDealerCard(card);
   };
 
   const resetHand = () => {
-    setPlayerCards([]);
-    setDealerCard(null);
-    setRecommendation(null);
-    setShowRecommendationModal(false);
+    if (playerCards.length >= 2 && dealerCard) {
+      finishHand();
+    } else {
+      clearCurrentHand();
+    }
+  };
+
+  const resetShoe = () => {
+    if (deckSize) setCardCounter(new CardCounter(deckSize));
   };
 
 
@@ -143,7 +239,54 @@ export default function App() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Basic Strategy Helper</Text>
-          <Text style={styles.subtitle}>{deckSize} Deck{deckSize > 1 ? 's' : ''}</Text>
+          <Text style={styles.subtitle}>{deckSize} Deck{deckSize > 1 ? 's' : ''} · Hand {handsPlayed + 1}</Text>
+        </View>
+
+        <View style={styles.countingToggleCard}>
+          <View style={styles.countingToggleRow}>
+            <View style={styles.countingToggleText}>
+              <Text style={styles.countingToggleLabel}>
+                Mix card counting with basic strategy
+              </Text>
+              <Text style={styles.countingToggleHint}>
+                {cardCountingEnabled
+                  ? 'Basic strategy + Hi-Lo adjustments when the count warrants it'
+                  : 'Basic strategy only — count still tracked in the background'}
+              </Text>
+            </View>
+            <Switch
+              value={cardCountingEnabled}
+              onValueChange={setCardCountingEnabled}
+              trackColor={{ false: '#3d3d5c', true: '#2a8f88' }}
+              thumbColor={cardCountingEnabled ? '#4ECDC4' : '#888'}
+              ios_backgroundColor="#3d3d5c"
+            />
+          </View>
+
+          {cardCounter && (
+            <View style={[
+              styles.countBadge,
+              !cardCountingEnabled && styles.countBadgeMuted,
+            ]}>
+              <Text style={[
+                styles.countBadgeText,
+                !cardCountingEnabled && styles.countBadgeTextMuted,
+              ]}>
+                {formatCountLabel(cardCounter.runningCount, cardCounter.trueCount)}
+              </Text>
+              <Text style={styles.countSubtext}>
+                {cardCountingEnabled
+                  ? `${cardCounter.cardsRemaining} cards left · count affects recommendations`
+                  : `${cardCounter.cardsRemaining} cards left · not affecting recommendations`}
+              </Text>
+            </View>
+          )}
+
+          {cardCountingEnabled && (
+            <TouchableOpacity style={styles.resetShoeButton} onPress={resetShoe}>
+              <Text style={styles.resetShoeButtonText}>New Shoe (Reset RC / TC)</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Player Cards Section */}
@@ -246,9 +389,40 @@ export default function App() {
             <View style={styles.bottomSheetHandle} />
             
             <ScrollView style={styles.bottomSheetScroll}>
-              <Text style={styles.bottomSheetTitle}>Strategy Recommendation</Text>
+              <Text style={styles.bottomSheetTitle}>
+                {isBusted ? 'Bust!' : 'Strategy Recommendation'}
+              </Text>
+              {!isBusted && (
+                <Text style={styles.strategyModeLabel}>
+                  {cardCountingEnabled
+                    ? 'Basic strategy · count may adjust specific plays'
+                    : 'Basic strategy only'}
+                </Text>
+              )}
               
-              {recommendation && (
+              {isBusted && (
+                <>
+                  <View style={[styles.bottomSheetRecommendationCard, styles.bustCard]}>
+                    <Text style={styles.bottomSheetActionText}>BUST</Text>
+                    <Text style={styles.bottomSheetActionDescription}>
+                      {playerCards.join(', ')} = {new Hand(playerCards).value} — over 21
+                    </Text>
+                  </View>
+                  <Text style={styles.bustAutoResetText}>
+                    Starting new hand automatically...
+                  </Text>
+                  <View style={styles.bottomSheetButtons}>
+                    <TouchableOpacity
+                      style={styles.newHandButton}
+                      onPress={finishHand}
+                    >
+                      <Text style={styles.newHandButtonText}>New Hand Now</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {!isBusted && recommendation && (
                 <>
                   <View style={[
                     styles.bottomSheetRecommendationCard,
@@ -259,6 +433,16 @@ export default function App() {
                       {getActionDescription(recommendation)}
                     </Text>
                   </View>
+
+                  {deviationInfo && (
+                    <View style={styles.deviationBanner}>
+                      <Text style={styles.deviationTitle}>Count-adjusted play</Text>
+                      <Text style={styles.deviationText}>
+                        Basic strategy: {deviationInfo.basicAction} → {deviationInfo.action}
+                      </Text>
+                      <Text style={styles.deviationReason}>{deviationInfo.reason}</Text>
+                    </View>
+                  )}
                   
                   {playerCards.length > 0 && (
                     <View style={styles.bottomSheetHandInfo}>
@@ -571,7 +755,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#ffffff',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 8,
+  },
+  strategyModeLabel: {
+    color: '#888',
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 16,
+    fontStyle: 'italic',
   },
   bottomSheetRecommendationCard: {
     padding: 20,
@@ -670,5 +861,106 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  countingToggleCard: {
+    backgroundColor: '#16213e',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#0f3460',
+  },
+  countingToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  countingToggleText: {
+    flex: 1,
+  },
+  countingToggleLabel: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  countingToggleHint: {
+    color: '#888',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  countBadge: {
+    backgroundColor: '#1a1a2e',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginTop: 14,
+    alignItems: 'center',
+  },
+  countBadgeMuted: {
+    opacity: 0.65,
+  },
+  countBadgeText: {
+    color: '#4ECDC4',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  countBadgeTextMuted: {
+    color: '#7a9e9c',
+  },
+  countSubtext: {
+    color: '#888',
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  resetShoeButton: {
+    backgroundColor: '#1a1a2e',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#0f3460',
+  },
+  resetShoeButtonText: {
+    color: '#bbb',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  bustCard: {
+    backgroundColor: '#c0392b',
+  },
+  bustAutoResetText: {
+    color: '#bbb',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 10,
+    fontStyle: 'italic',
+  },
+  deviationBanner: {
+    backgroundColor: '#2d1f4e',
+    padding: 14,
+    borderRadius: 10,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#9b59b6',
+  },
+  deviationTitle: {
+    color: '#9b59b6',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  deviationText: {
+    color: '#ddd',
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  deviationReason: {
+    color: '#aaa',
+    fontSize: 13,
+    fontStyle: 'italic',
   },
 });
