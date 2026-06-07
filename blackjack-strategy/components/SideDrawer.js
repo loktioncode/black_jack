@@ -1,5 +1,19 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+
+const MENU_ITEMS = [
+  {
+    id: 'strategy',
+    label: 'Strategy',
+    icon: 'grid-outline',
+  },
+  {
+    id: 'play',
+    label: 'Play',
+    icon: 'game-controller-outline',
+  },
+];
 
 export default function SideDrawer({ visible, activeScreen, onNavigate, onClose }) {
   const slide = useRef(new Animated.Value(-280)).current;
@@ -20,27 +34,27 @@ export default function SideDrawer({ visible, activeScreen, onNavigate, onClose 
       <Animated.View style={[styles.drawer, { transform: [{ translateX: slide }] }]}>
         <Text style={styles.drawerTitle}>Menu</Text>
 
-        <TouchableOpacity
-          style={[styles.menuItem, activeScreen === 'strategy' && styles.menuItemActive]}
-          onPress={() => onNavigate('strategy')}
-        >
-          <Text style={styles.menuIcon}>📋</Text>
-          <View>
-            <Text style={styles.menuLabel}>Strategy</Text>
-            <Text style={styles.menuHint}>Hand lookup & recommendations</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.menuItem, activeScreen === 'play' && styles.menuItemActive]}
-          onPress={() => onNavigate('play')}
-        >
-          <Text style={styles.menuIcon}>🎰</Text>
-          <View>
-            <Text style={styles.menuLabel}>Play</Text>
-            <Text style={styles.menuHint}>Practice vs the dealer</Text>
-          </View>
-        </TouchableOpacity>
+        {MENU_ITEMS.map((item) => {
+          const active = activeScreen === item.id;
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={[styles.menuItem, active && styles.menuItemActive]}
+              onPress={() => onNavigate(item.id)}
+            >
+              <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
+                <Ionicons
+                  name={item.icon}
+                  size={22}
+                  color={active ? '#4ECDC4' : '#888'}
+                />
+              </View>
+              <Text style={[styles.menuLabel, active && styles.menuLabelActive]}>
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </Animated.View>
     </View>
   );
@@ -61,10 +75,10 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: 280,
+    width: 240,
     backgroundColor: '#12121f',
     paddingTop: 56,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     borderRightWidth: 1,
     borderRightColor: '#2a2a4a',
   },
@@ -74,14 +88,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 2,
     textTransform: 'uppercase',
-    marginBottom: 24,
+    marginBottom: 20,
+    paddingHorizontal: 4,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: 14,
     borderRadius: 12,
-    marginBottom: 8,
+    marginBottom: 6,
     gap: 14,
   },
   menuItemActive: {
@@ -89,17 +104,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#4ECDC4',
   },
-  menuIcon: {
-    fontSize: 28,
+  iconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#1a1a2e',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconWrapActive: {
+    backgroundColor: '#16213e',
   },
   menuLabel: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
+    color: '#ccc',
+    fontSize: 17,
+    fontWeight: '600',
   },
-  menuHint: {
-    color: '#888',
-    fontSize: 13,
-    marginTop: 2,
+  menuLabelActive: {
+    color: '#fff',
   },
 });
