@@ -17,8 +17,17 @@
       }
     },
     "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
       "ios": {
         "resourceClass": "m1-medium"
+      }
+    },
+    "production-apk": {
+      "extends": "production",
+      "android": {
+        "buildType": "apk"
       }
     }
   },
