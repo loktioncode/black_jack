@@ -44,6 +44,12 @@
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Find nearby players on your Wi-Fi network for direct friend matches.</string>
+    <key>NSBonjourServices</key>
+    <array>
+      <string>_bjarena._udp</string>
+    </array>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>
     <key>UIRequiredDeviceCapabilities</key>

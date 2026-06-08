@@ -44,7 +44,7 @@ function hintActionLabel(action) {
   }
 }
 
-export default function PlayScreen({ onOpenDrawer }) {
+export default function PlayScreen({ onOpenDrawer, onBack }) {
   const [deckSize, setDeckSize] = useState(null);
   const [game, setGame] = useState(null);
   const [cardCounter, setCardCounter] = useState(null);
@@ -148,7 +148,7 @@ export default function PlayScreen({ onOpenDrawer }) {
   if (!deckSize) {
     return (
       <SafeAreaView style={styles.container}>
-        <AppHeader onMenuPress={onOpenDrawer} subtitle="Play" />
+        <AppHeader onMenuPress={onOpenDrawer} onBackPress={onBack} subtitle="Play" />
         <DeckSelector title="Practice Table" onSelect={setDeckSize} rulesNote="Vegas rules: H17, 3:2 BJ, double any two cards, DAS, split aces one card, dealer peek" />
       </SafeAreaView>
     );
@@ -189,6 +189,7 @@ export default function PlayScreen({ onOpenDrawer }) {
     <SafeAreaView style={styles.container}>
       <AppHeader
         onMenuPress={onOpenDrawer}
+        onBackPress={onBack}
         subtitle={`${deckSize} decks · $${game.bankroll} · $${game.bet} bet`}
         onHelpPress={() => setHintDrawerOpen(true)}
       />

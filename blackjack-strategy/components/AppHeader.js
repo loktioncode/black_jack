@@ -2,14 +2,20 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function AppHeader({ onMenuPress, subtitle, rightContent, onHelpPress }) {
+export default function AppHeader({ onMenuPress, onBackPress, subtitle, rightContent, onHelpPress }) {
   return (
     <View style={styles.header}>
-      <TouchableOpacity style={styles.menuButton} onPress={onMenuPress} hitSlop={12}>
-        <View style={styles.bar} />
-        <View style={[styles.bar, styles.barMid]} />
-        <View style={styles.bar} />
-      </TouchableOpacity>
+      {onBackPress ? (
+        <TouchableOpacity style={styles.menuButton} onPress={onBackPress} hitSlop={12}>
+          <Ionicons name="chevron-back" size={26} color="#fff" />
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity style={styles.menuButton} onPress={onMenuPress} hitSlop={12}>
+          <View style={styles.bar} />
+          <View style={[styles.bar, styles.barMid]} />
+          <View style={styles.bar} />
+        </TouchableOpacity>
+      )}
 
       <View style={styles.center}>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}

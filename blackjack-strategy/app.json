@@ -16,7 +16,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.elishabere.blackjackstrategy",
       "buildNumber": "1",
-      "deploymentTarget": "15.1"
+      "deploymentTarget": "15.1",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Find nearby players on your Wi-Fi network for direct friend matches.",
+        "NSBonjourServices": ["_bjarena._udp"]
+      }
     },
     "android": {
       "package": "com.elishabere.blackjackstrategy",
@@ -25,7 +29,13 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE",
+        "CHANGE_WIFI_MULTICAST_STATE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -37,7 +47,8 @@
     },
     "plugins": [
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      "expo-dev-client"
     ]
   }
 }

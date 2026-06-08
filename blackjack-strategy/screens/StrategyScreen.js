@@ -20,7 +20,7 @@ import DeckSelector from '../components/DeckSelector';
 const HANDS_BEFORE_COUNTING_PROMPT = 10;
 const BUST_AUTO_RESET_MS = 2500;
 
-export default function StrategyScreen({ onOpenDrawer }) {
+export default function StrategyScreen({ onOpenDrawer, onBack }) {
   const [deckSize, setDeckSize] = useState(null);
   const [showDeckSelector, setShowDeckSelector] = useState(true);
   const [playerCards, setPlayerCards] = useState([]);
@@ -209,7 +209,7 @@ export default function StrategyScreen({ onOpenDrawer }) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar style="light" />
-        <AppHeader onMenuPress={onOpenDrawer} subtitle="Strategy" />
+        <AppHeader onMenuPress={onOpenDrawer} onBackPress={onBack} subtitle="Strategy" />
         <DeckSelector title="Strategy Lookup" onSelect={selectDeckSize} />
       </SafeAreaView>
     );
@@ -220,6 +220,7 @@ export default function StrategyScreen({ onOpenDrawer }) {
       <StatusBar style="light" />
       <AppHeader
         onMenuPress={onOpenDrawer}
+        onBackPress={onBack}
         subtitle={`${deckSize} Deck${deckSize > 1 ? 's' : ''} · Hand ${handsPlayed + 1}`}
       />
       <ScrollView contentContainerStyle={styles.scrollContent}>

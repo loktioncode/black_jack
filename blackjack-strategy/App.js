@@ -2,11 +2,16 @@ import React, { useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { View, StyleSheet } from 'react-native';
 import SideDrawer from './components/SideDrawer';
-import StrategyScreen from './screens/StrategyScreen';
-import PlayScreen from './screens/PlayScreen';
+import { UserProvider } from './context/UserContext';
+import PlayBjScreen from './screens/PlayBjScreen';
+import PlayFriendsScreen from './screens/PlayFriendsScreen';
+import PlayTsoroScreen from './screens/PlayTsoroScreen';
+import PlayMorabarabaScreen from './screens/PlayMorabarabaScreen';
+import CouponsScreen from './screens/CouponsScreen';
+import WalletScreen from './screens/WalletScreen';
 
-export default function App() {
-  const [activeScreen, setActiveScreen] = useState('strategy');
+function AppShell() {
+  const [activeScreen, setActiveScreen] = useState('playTsoro');
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const openDrawer = () => setDrawerOpen(true);
@@ -17,14 +22,34 @@ export default function App() {
     setDrawerOpen(false);
   };
 
+  const renderScreen = () => {
+    switch (activeScreen) {
+      case 'playBj':
+        return <PlayBjScreen onOpenDrawer={openDrawer} />;
+      case 'playFriends':
+        return <PlayFriendsScreen onOpenDrawer={openDrawer} />;
+      case 'playTsoro':
+        return <PlayTsoroScreen onOpenDrawer={openDrawer} />;
+      case 'playMorabaraba':
+        return <PlayMorabarabaScreen onOpenDrawer={openDrawer} />;
+      case 'coupons':
+        return (
+          <CouponsScreen
+            onOpenDrawer={openDrawer}
+            onNavigateWallet={() => navigate('wallet')}
+          />
+        );
+      case 'wallet':
+        return <WalletScreen onOpenDrawer={openDrawer} />;
+      default:
+        return <PlayTsoroScreen onOpenDrawer={openDrawer} />;
+    }
+  };
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
-      {activeScreen === 'strategy' ? (
-        <StrategyScreen onOpenDrawer={openDrawer} />
-      ) : (
-        <PlayScreen onOpenDrawer={openDrawer} />
-      )}
+      {renderScreen()}
       <SideDrawer
         visible={drawerOpen}
         activeScreen={activeScreen}
@@ -32,6 +57,14 @@ export default function App() {
         onClose={closeDrawer}
       />
     </View>
+  );
+}
+
+export default function App() {
+  return (
+    <UserProvider>
+      <AppShell />
+    </UserProvider>
   );
 }
 
