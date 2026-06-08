@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-export default function DeckSelector({ title, onSelect }) {
+export default function DeckSelector({ title, onSelect, rulesNote }) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{title}</Text>
@@ -20,6 +20,10 @@ export default function DeckSelector({ title, onSelect }) {
           </TouchableOpacity>
         ))}
       </View>
+
+      {rulesNote ? (
+        <Text style={styles.rulesNote}>{rulesNote}</Text>
+      ) : null}
 
       <Text style={styles.note}>
         Most casinos use 6–8 decks. Single deck is best for counting practice.
@@ -74,5 +78,13 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 20,
     paddingHorizontal: 20,
+  },
+  rulesNote: {
+    color: '#4ECDC4',
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 19,
+    paddingHorizontal: 24,
+    marginTop: 8,
   },
 });

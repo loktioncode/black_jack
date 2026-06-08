@@ -1,5 +1,11 @@
 import { Hand } from './basicStrategy';
 import { createShoe, cardsToRanks } from './cardUtils';
+import {
+  DEFAULT_TABLE_RULES,
+  canDoubleHand,
+  canSplitHand,
+  canHitHand,
+} from './tableRules';
 
 export const PHASES = {
   SETUP: 'setup',
@@ -9,7 +15,7 @@ export const PHASES = {
   RESULT: 'result',
 };
 
-function makeHand(cards = [], bet = 10) {
+function makeHand(cards = [], bet = 10, extras = {}) {
   return {
     cards,
     bet,
@@ -17,6 +23,9 @@ function makeHand(cards = [], bet = 10) {
     doubled: false,
     busted: false,
     blackjack: false,
+    fromSplit: false,
+    splitAces: false,
+    ...extras,
   };
 }
 
@@ -33,14 +42,18 @@ function evaluateHand(hand) {
   };
 }
 
-function isHandComplete(hand) {
-  return hand.stood || hand.busted || (hand.doubled && hand.cards.length >= 3);
+function isHandComplete(hand, rules) {
+  if (hand.stood || hand.busted) return true;
+  if (hand.doubled && hand.cards.length >= 3) return true;
+  if (hand.splitAces && rules.splitAcesOneCardOnly && hand.cards.length >= 2) return true;
+  return false;
 }
 
 function advanceAfterHandAction(state, message) {
+  const { rules } = state;
   for (let i = 0; i < state.playerHands.length; i += 1) {
     const h = state.playerHands[i];
-    if (!isHandComplete(h)) {
+    if (!isHandComplete(h, rules)) {
       return {
         ...state,
         activeHandIndex: i,
@@ -64,10 +77,29 @@ function handOutcome(playerHand, dealerHand) {
   return 'push';
 }
 
-export function createInitialGameState(deckCount, bankroll = 1000, bet = 10) {
+function dealerUpRank(dealerCards) {
+  return dealerCards[0]?.rank ?? null;
+}
+
+function isTenValue(rank) {
+  return ['10', 'J', 'Q', 'K'].includes(rank);
+}
+
+function shouldPeek(dealerCards, rules) {
+  if (!rules.peekOnAceAndTen) return false;
+  const up = dealerUpRank(dealerCards);
+  return up === 'A' || isTenValue(up);
+}
+
+function blackjackPayout(bet, rules) {
+  return Math.floor(bet * rules.blackjackPays);
+}
+
+export function createInitialGameState(deckCount, bankroll = 1000, bet = 10, rules = DEFAULT_TABLE_RULES) {
   return {
     phase: PHASES.SETUP,
     deckCount,
+    rules,
     shoe: createShoe(deckCount),
     dealerCards: [],
     dealerHoleHidden: true,
@@ -95,6 +127,7 @@ export function startRound(state) {
     return { ...state, message: 'Not enough chips!' };
   }
 
+  const { rules } = state;
   let shoe = [...state.shoe];
   if (shoe.length < 20) shoe = createShoe(state.deckCount);
 
@@ -114,8 +147,10 @@ export function startRound(state) {
   let roundResults = [];
 
   const dealerFull = new Hand(cardsToRanks(dealerCards));
+  const dealerHasBlackjack = dealerFull.value === 21;
+  const peeked = shouldPeek(dealerCards, rules);
 
-  if (dealerFull.value === 21) {
+  if (peeked && dealerHasBlackjack) {
     phase = PHASES.RESULT;
     dealerHoleHidden = false;
     if (playerHand.blackjack) {
@@ -130,7 +165,11 @@ export function startRound(state) {
     phase = PHASES.RESULT;
     dealerHoleHidden = false;
     message = 'Blackjack!';
-    roundResults = [{ outcome: 'blackjack', payout: Math.floor(state.bet * 1.5), bet: state.bet }];
+    roundResults = [{
+      outcome: 'blackjack',
+      payout: blackjackPayout(state.bet, rules),
+      bet: state.bet,
+    }];
     bankroll += roundResults[0].payout;
   }
 
@@ -154,21 +193,24 @@ export function getActiveHand(state) {
 }
 
 export function canDouble(state) {
-  const hand = getActiveHand(state);
-  return hand.cards.length === 2 && !hand.doubled && state.bankroll >= hand.bet;
+  return canDoubleHand(state, state.rules);
 }
 
 export function canSplit(state) {
-  const hand = getActiveHand(state);
-  return hand.isPair && hand.cards.length === 2 && state.playerHands.length < 4 && state.bankroll >= hand.bet;
+  return canSplitHand(state, state.rules);
+}
+
+export function canHit(state) {
+  return canHitHand(state, state.rules);
 }
 
 export function playerHit(state) {
+  if (!canHitHand(state, state.rules)) return state;
+
   const { card, shoe } = drawCard(state);
   const hands = state.playerHands.map((h, i) => {
     if (i !== state.activeHandIndex) return h;
-    const updated = evaluateHand({ ...h, cards: [...h.cards, card] });
-    return updated;
+    return evaluateHand({ ...h, cards: [...h.cards, card] });
   });
 
   const active = hands[state.activeHandIndex];
@@ -186,7 +228,8 @@ export function playerStand(state) {
 }
 
 export function playerDouble(state) {
-  if (!canDouble(state)) return state;
+  if (!canDoubleHand(state, state.rules)) return state;
+
   const hand = getActiveHand(state);
   const { card, shoe } = drawCard(state);
   const updated = evaluateHand({
@@ -208,27 +251,45 @@ export function playerDouble(state) {
 }
 
 export function playerSplit(state) {
-  if (!canSplit(state)) return state;
+  if (!canSplitHand(state, state.rules)) return state;
+
   const hand = getActiveHand(state);
+  const isAces = hand.cards[0].rank === 'A';
   const { card: c1, shoe: s1 } = drawCard(state);
   const { card: c2, shoe: s2 } = drawCard({ ...state, shoe: s1 });
 
-  const hand1 = evaluateHand(makeHand([hand.cards[0], c1], hand.bet));
-  const hand2 = evaluateHand(makeHand([hand.cards[1], c2], hand.bet));
+  let hand1 = evaluateHand(
+    makeHand([hand.cards[0], c1], hand.bet, { fromSplit: true, splitAces: isAces })
+  );
+  let hand2 = evaluateHand(
+    makeHand([hand.cards[1], c2], hand.bet, { fromSplit: true, splitAces: isAces })
+  );
+
+  if (isAces && state.rules.splitAcesOneCardOnly) {
+    hand1 = { ...hand1, stood: true };
+    hand2 = { ...hand2, stood: true };
+  }
+
   const hands = [...state.playerHands];
   hands.splice(state.activeHandIndex, 1, hand1, hand2);
 
-  return {
+  const nextState = {
     ...state,
     shoe: s2,
     playerHands: hands,
-    activeHandIndex: state.activeHandIndex,
     bankroll: state.bankroll - hand.bet,
-    message: 'Split — play first hand',
+    message: isAces ? 'Split aces — one card each' : 'Split — play first hand',
   };
+
+  if (isAces && state.rules.splitAcesOneCardOnly) {
+    return advanceAfterHandAction(nextState, 'Split aces complete');
+  }
+
+  return { ...nextState, activeHandIndex: state.activeHandIndex };
 }
 
 export function runDealerTurn(state) {
+  const { rules } = state;
   let dealerCards = [...state.dealerCards];
   let shoe = [...state.shoe];
 
@@ -238,7 +299,12 @@ export function runDealerTurn(state) {
   };
 
   let dealerHand = evaluateHand(makeHand(dealerCards));
-  while (dealerHand.value < 17 || (dealerHand.isSoft && dealerHand.value === 17)) {
+  const hitsSoft17 = rules.dealerHitsSoft17;
+
+  while (
+    dealerHand.value < 17 ||
+    (hitsSoft17 && dealerHand.isSoft && dealerHand.value === 17)
+  ) {
     dealerCards.push(draw());
     dealerHand = evaluateHand(makeHand(dealerCards));
   }
@@ -247,7 +313,7 @@ export function runDealerTurn(state) {
     const outcome = handOutcome(ph, dealerHand);
     let payout = 0;
     if (outcome === 'win') payout = ph.bet;
-    else if (outcome === 'blackjack') payout = Math.floor(ph.bet * 1.5);
+    else if (outcome === 'blackjack') payout = blackjackPayout(ph.bet, rules);
     else if (outcome === 'lose') payout = -ph.bet;
     return { outcome, payout, bet: ph.bet };
   });
@@ -276,3 +342,14 @@ export function runDealerTurn(state) {
 export function getDealerUpRank(state) {
   return state.dealerCards[0]?.rank ?? null;
 }
+
+export { DEFAULT_TABLE_RULES } from './tableRules';
+export {
+  canDoubleHand,
+  canSplitHand,
+  canHitHand,
+  getDoubleBlockReason,
+  getSplitBlockReason,
+  getHitBlockReason,
+  getRuleSummary,
+} from './tableRules';

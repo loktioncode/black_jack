@@ -1,27 +1,32 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Platform,
   SafeAreaView,
-  ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import AppHeader from '../components/AppHeader';
 import DeckSelector from '../components/DeckSelector';
+import HintDrawer from '../components/HintDrawer';
 import PlayingCard from '../components/PlayingCard';
 import { BasicStrategy, Hand, Actions, getActionDescription } from '../utils/basicStrategy';
-import { CardCounter, getAdjustedRecommendation, formatCountLabel } from '../utils/cardCounting';
+import { CardCounter, getAdjustedRecommendation } from '../utils/cardCounting';
 import { cardsToRanks } from '../utils/cardUtils';
 import {
   PHASES,
   canDouble,
   canSplit,
+  canHit,
   createInitialGameState,
   getActiveHand,
   getDealerUpRank,
+  getDoubleBlockReason,
+  getSplitBlockReason,
+  getHitBlockReason,
+  getRuleSummary,
   playerDouble,
   playerHit,
   playerSplit,
@@ -29,12 +34,23 @@ import {
   startRound,
 } from '../utils/gameEngine';
 
+function hintActionLabel(action) {
+  switch (action) {
+    case Actions.HIT: return 'Hit';
+    case Actions.STAND: return 'Stand';
+    case Actions.DOUBLE: return 'x2';
+    case Actions.SPLIT: return 'Split';
+    default: return action;
+  }
+}
+
 export default function PlayScreen({ onOpenDrawer }) {
   const [deckSize, setDeckSize] = useState(null);
   const [game, setGame] = useState(null);
   const [cardCounter, setCardCounter] = useState(null);
   const [cardCountingEnabled, setCardCountingEnabled] = useState(false);
   const [showHints, setShowHints] = useState(true);
+  const [hintDrawerOpen, setHintDrawerOpen] = useState(false);
   const [dealKey, setDealKey] = useState(0);
   const pulse = useRef(new Animated.Value(1)).current;
 
@@ -120,20 +136,20 @@ export default function PlayScreen({ onOpenDrawer }) {
   };
 
   const hint = useMemo(() => {
-    if (!game || game.phase !== PHASES.PLAYER || !showHints) return null;
+    if (!game || game.phase !== PHASES.PLAYER) return null;
     const hand = getActiveHand(game);
     const up = getDealerUpRank(game);
     if (!hand?.cards.length || !up) return null;
     const h = new Hand(cardsToRanks(hand.cards));
     const tc = cardCountingEnabled && cardCounter ? cardCounter.trueCount : null;
     return getAdjustedRecommendation(strategy, h, up, tc);
-  }, [game, showHints, cardCountingEnabled, cardCounter, strategy]);
+  }, [game, cardCountingEnabled, cardCounter, strategy]);
 
   if (!deckSize) {
     return (
       <SafeAreaView style={styles.container}>
         <AppHeader onMenuPress={onOpenDrawer} subtitle="Play" />
-        <DeckSelector title="Practice Table" onSelect={setDeckSize} />
+        <DeckSelector title="Practice Table" onSelect={setDeckSize} rulesNote="Vegas rules: H17, 3:2 BJ, double any two cards, DAS, split aces one card, dealer peek" />
       </SafeAreaView>
     );
   }
@@ -142,13 +158,39 @@ export default function PlayScreen({ onOpenDrawer }) {
 
   const activeHand = getActiveHand(game);
   const canPlay = game.phase === PHASES.PLAYER;
+  const showDoubleBtn = canPlay && activeHand?.cards.length === 2 && !activeHand.doubled;
+  const showSplitBtn = canPlay && activeHand?.cards.length === 2 && activeHand.isPair;
+  const doubleAllowed = canDouble(game);
+  const splitAllowed = canSplit(game);
+  const hitAllowed = canHit(game);
+  const doubleBlockReason = showDoubleBtn && !doubleAllowed ? getDoubleBlockReason(game, game.rules) : null;
+  const splitBlockReason = showSplitBtn && !splitAllowed ? getSplitBlockReason(game, game.rules) : null;
+  const hitBlockReason = canPlay && !hitAllowed ? getHitBlockReason(game, game.rules) : null;
+  const tableRules = getRuleSummary(game.rules);
+  const tableRulesShort = [
+    game.rules.dealerHitsSoft17 ? 'H17' : 'S17',
+    game.rules.blackjackPays === 1.5 ? '3:2' : '6:5',
+    game.rules.doubleAfterSplit ? 'DAS' : 'No DAS',
+    game.rules.peekOnAceAndTen ? 'Peek' : null,
+  ].filter(Boolean).join(' · ');
+  const hintBlocked =
+    hint &&
+    ((hint.action === Actions.DOUBLE && !doubleAllowed) ||
+      (hint.action === Actions.SPLIT && !splitAllowed) ||
+      (hint.action === Actions.HIT && !hitAllowed));
+  const hintBlockReason =
+    hint?.action === Actions.DOUBLE
+      ? doubleBlockReason
+      : hint?.action === Actions.SPLIT
+        ? splitBlockReason
+        : hitBlockReason;
 
   return (
     <SafeAreaView style={styles.container}>
       <AppHeader
         onMenuPress={onOpenDrawer}
-        subtitle={`${deckSize} decks · $${game.bankroll}`}
-        rightContent={<Text style={styles.chipText}>${game.bet}</Text>}
+        subtitle={`${deckSize} decks · $${game.bankroll} · $${game.bet} bet`}
+        onHelpPress={() => setHintDrawerOpen(true)}
       />
 
       <View style={styles.tableWrap}>
@@ -156,6 +198,7 @@ export default function PlayScreen({ onOpenDrawer }) {
           <View style={styles.tableRim} />
           <View style={styles.felt}>
             <Text style={styles.tableBrand}>BLACKJACK</Text>
+            <Text style={styles.tableRules}>{tableRulesShort}</Text>
 
             {/* Shoe */}
             <View style={styles.shoeArea}>
@@ -236,33 +279,75 @@ export default function PlayScreen({ onOpenDrawer }) {
         )}
       </View>
 
-      {hint && canPlay && (
-        <View style={styles.hintBar}>
-          <Text style={styles.hintLabel}>Hint: {hint.action}</Text>
-          <Text style={styles.hintDesc}>{getActionDescription(hint.action)}</Text>
-          {hint.deviated && (
-            <Text style={styles.hintDev}>Count adjusted from {hint.basicAction}</Text>
+      {canPlay && (doubleBlockReason || splitBlockReason || hitBlockReason) && (
+        <Text style={styles.blockReasonText}>
+          {[hitBlockReason, doubleBlockReason, splitBlockReason].filter(Boolean).join(' · ')}
+        </Text>
+      )}
+
+      {showHints && canPlay && hint && (
+        <View style={[styles.tableHintBar, hintBlocked && styles.tableHintBarBlocked]}>
+          <Text style={styles.tableHintLabel}>Hint</Text>
+          {hint.deviated ? (
+            <>
+              <Text style={styles.tableHintAction}>{hintActionLabel(hint.action)}</Text>
+              <Text style={styles.tableHintDesc} numberOfLines={2}>
+                Count play — {getActionDescription(hint.action)}
+              </Text>
+              <Text style={styles.tableHintReason}>{hint.reason}</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.tableHintAction}>{hintActionLabel(hint.action)}</Text>
+              <Text style={styles.tableHintDesc} numberOfLines={2}>
+                {getActionDescription(hint.action)}
+              </Text>
+            </>
+          )}
+          <View style={styles.tableHintBasicRow}>
+            <Text style={styles.tableHintBasicLabel}>Basic strategy</Text>
+            <Text style={styles.tableHintBasicText}>
+              {hintActionLabel(hint.basicAction)} — {getActionDescription(hint.basicAction)}
+            </Text>
+          </View>
+          {hintBlocked && hintBlockReason && (
+            <Text style={styles.tableHintBlocked}>Not allowed: {hintBlockReason}</Text>
           )}
         </View>
       )}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.controlsScroll}>
+      <View style={styles.controlsWrap}>
         <View style={styles.controls}>
           {canPlay ? (
             <>
-              <TouchableOpacity style={[styles.btn, styles.hitBtn]} onPress={() => handleAction('hit')}>
+              <TouchableOpacity
+                style={[styles.btn, styles.hitBtn, !hitAllowed && styles.btnDisabled]}
+                onPress={() => handleAction('hit')}
+                disabled={!hitAllowed}
+              >
                 <Text style={styles.btnText}>Hit</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.btn, styles.standBtn]} onPress={() => handleAction('stand')}>
+              <TouchableOpacity
+                style={[styles.btn, styles.standBtn]}
+                onPress={() => handleAction('stand')}
+              >
                 <Text style={styles.btnText}>Stand</Text>
               </TouchableOpacity>
-              {canDouble(game) && (
-                <TouchableOpacity style={[styles.btn, styles.doubleBtn]} onPress={() => handleAction('double')}>
-                  <Text style={styles.btnText}>Double</Text>
+              {showDoubleBtn && (
+                <TouchableOpacity
+                  style={[styles.btn, styles.doubleBtn, !doubleAllowed && styles.btnDisabled]}
+                  onPress={() => handleAction('double')}
+                  disabled={!doubleAllowed}
+                >
+                  <Text style={styles.btnText}>x2</Text>
                 </TouchableOpacity>
               )}
-              {canSplit(game) && (
-                <TouchableOpacity style={[styles.btn, styles.splitBtn]} onPress={() => handleAction('split')}>
+              {showSplitBtn && (
+                <TouchableOpacity
+                  style={[styles.btn, styles.splitBtn, !splitAllowed && styles.btnDisabled]}
+                  onPress={() => handleAction('split')}
+                  disabled={!splitAllowed}
+                >
                   <Text style={styles.btnText}>Split</Text>
                 </TouchableOpacity>
               )}
@@ -278,30 +363,24 @@ export default function PlayScreen({ onOpenDrawer }) {
             </TouchableOpacity>
           ) : null}
         </View>
-      </ScrollView>
-
-      <View style={styles.settingsPanel}>
-        <View style={styles.settingRow}>
-          <Text style={styles.settingLabel}>Strategy hints</Text>
-          <Switch value={showHints} onValueChange={setShowHints} trackColor={{ false: '#3d3d5c', true: '#2a8f88' }} thumbColor={showHints ? '#4ECDC4' : '#888'} />
-        </View>
-        <View style={styles.settingRow}>
-          <Text style={styles.settingLabel}>Mix counting with basic strategy</Text>
-          <Switch value={cardCountingEnabled} onValueChange={setCardCountingEnabled} trackColor={{ false: '#3d3d5c', true: '#2a8f88' }} thumbColor={cardCountingEnabled ? '#4ECDC4' : '#888'} />
-        </View>
-        {cardCounter && (
-          <Text style={styles.countText}>
-            {formatCountLabel(cardCounter.runningCount, cardCounter.trueCount)}
-          </Text>
-        )}
       </View>
+
+      <HintDrawer
+        visible={hintDrawerOpen}
+        onClose={() => setHintDrawerOpen(false)}
+        showHints={showHints}
+        onShowHintsChange={setShowHints}
+        cardCountingEnabled={cardCountingEnabled}
+        onCardCountingChange={setCardCountingEnabled}
+        cardCounter={cardCounter}
+        tableRules={tableRules}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d18' },
-  chipText: { color: '#f1c40f', fontWeight: '700', fontSize: 14 },
   tableWrap: { flex: 1, padding: 12 },
   table: { flex: 1 },
   tableRim: {
@@ -324,6 +403,13 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '900',
     letterSpacing: 4,
+    marginBottom: 4,
+  },
+  tableRules: {
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 10,
+    letterSpacing: 1,
     marginBottom: 8,
   },
   shoeArea: { position: 'absolute', top: 12, right: 12, alignItems: 'center' },
@@ -357,33 +443,107 @@ const styles = StyleSheet.create({
   messageBar: { paddingHorizontal: 16, paddingVertical: 8, alignItems: 'center' },
   messageText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   resultText: { color: '#4ECDC4', fontSize: 13, marginTop: 4 },
-  hintBar: {
-    marginHorizontal: 16,
-    backgroundColor: '#16213e',
-    padding: 10,
-    borderRadius: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: '#9b59b6',
+  blockReasonText: {
+    color: '#e67e22',
+    fontSize: 12,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 4,
+    fontStyle: 'italic',
   },
-  hintLabel: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  hintDesc: { color: '#aaa', fontSize: 12 },
-  hintDev: { color: '#9b59b6', fontSize: 11, marginTop: 2 },
-  controlsScroll: { maxHeight: 56, marginBottom: 4 },
-  controls: { flexDirection: 'row', paddingHorizontal: 12, gap: 8 },
-  btn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 10, minWidth: 80, alignItems: 'center' },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  tableHintBar: {
+    marginHorizontal: 12,
+    marginBottom: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(78,205,196,0.5)',
+    alignItems: 'center',
+  },
+  tableHintBarBlocked: {
+    borderColor: 'rgba(230,126,34,0.6)',
+  },
+  tableHintLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  tableHintAction: {
+    color: '#4ECDC4',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  tableHintDesc: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  tableHintReason: {
+    color: '#9b59b6',
+    fontSize: 11,
+    marginTop: 4,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  tableHintBasicRow: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.15)',
+    width: '100%',
+    alignItems: 'center',
+  },
+  tableHintBasicLabel: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  tableHintBasicText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  tableHintBlocked: {
+    color: '#e67e22',
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  controlsWrap: {
+    marginTop: 16,
+    marginBottom: 12,
+    paddingBottom: Platform.OS === 'android' ? 48 : 32,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  controls: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  btn: {
+    width: 116,
+    height: 52,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  btnText: { color: '#fff', fontWeight: '700', fontSize: 15, textAlign: 'center' },
+  btnDisabled: { opacity: 0.35 },
   hitBtn: { backgroundColor: '#e74c3c' },
   standBtn: { backgroundColor: '#4ECDC4' },
   doubleBtn: { backgroundColor: '#3498db' },
   splitBtn: { backgroundColor: '#27ae60' },
   dealBtn: { backgroundColor: '#f1c40f' },
-  settingsPanel: {
-    backgroundColor: '#12121f',
-    padding: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#2a2a4a',
-  },
-  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  settingLabel: { color: '#bbb', fontSize: 13, flex: 1, marginRight: 8 },
-  countText: { color: '#4ECDC4', fontSize: 13, textAlign: 'center', marginTop: 4 },
 });
