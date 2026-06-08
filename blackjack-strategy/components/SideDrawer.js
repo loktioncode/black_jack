@@ -6,10 +6,8 @@ const MENU_SECTIONS = [
   {
     title: 'Play',
     items: [
-      { id: 'playTsoro', label: 'Play Tsoro', Icon: MaterialCommunityIcons, icon: 'dots-circle' },
       { id: 'playBj', label: 'Play BJ', Icon: MaterialCommunityIcons, icon: 'cards-playing-outline' },
-      { id: 'playFriends', label: 'Play Friends', Icon: Ionicons, icon: 'people-outline' },
-      { id: 'playMorabaraba', label: 'Play Morabaraba', Icon: MaterialCommunityIcons, icon: 'grid' },
+      { id: 'friends', label: 'Friends', Icon: Ionicons, icon: 'people-outline' },
     ],
   },
   {

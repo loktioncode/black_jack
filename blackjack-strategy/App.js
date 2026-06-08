@@ -1,17 +1,36 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { View, StyleSheet } from 'react-native';
 import SideDrawer from './components/SideDrawer';
-import { UserProvider } from './context/UserContext';
+import { UserProvider, useUser } from './context/UserContext';
 import PlayBjScreen from './screens/PlayBjScreen';
-import PlayFriendsScreen from './screens/PlayFriendsScreen';
-import PlayTsoroScreen from './screens/PlayTsoroScreen';
-import PlayMorabarabaScreen from './screens/PlayMorabarabaScreen';
+import FriendsScreen from './screens/FriendsScreen';
 import CouponsScreen from './screens/CouponsScreen';
 import WalletScreen from './screens/WalletScreen';
+import {
+  isLanPeerAvailable,
+  startLanPeer,
+} from './services/lanPeer';
+
+function LanPeerHost({ children }) {
+  const { userId, username, p2pCode } = useUser();
+
+  useEffect(() => {
+    if (!isLanPeerAvailable()) return undefined;
+
+    startLanPeer({ userId, username, p2pCode }, {
+      onPeers: () => {},
+      onUnavailable: () => {},
+    });
+
+    return undefined;
+  }, [userId, username, p2pCode]);
+
+  return children;
+}
 
 function AppShell() {
-  const [activeScreen, setActiveScreen] = useState('playTsoro');
+  const [activeScreen, setActiveScreen] = useState('playBj');
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const openDrawer = () => setDrawerOpen(true);
@@ -26,12 +45,8 @@ function AppShell() {
     switch (activeScreen) {
       case 'playBj':
         return <PlayBjScreen onOpenDrawer={openDrawer} />;
-      case 'playFriends':
-        return <PlayFriendsScreen onOpenDrawer={openDrawer} />;
-      case 'playTsoro':
-        return <PlayTsoroScreen onOpenDrawer={openDrawer} />;
-      case 'playMorabaraba':
-        return <PlayMorabarabaScreen onOpenDrawer={openDrawer} />;
+      case 'friends':
+        return <FriendsScreen onOpenDrawer={openDrawer} />;
       case 'coupons':
         return (
           <CouponsScreen
@@ -42,21 +57,23 @@ function AppShell() {
       case 'wallet':
         return <WalletScreen onOpenDrawer={openDrawer} />;
       default:
-        return <PlayTsoroScreen onOpenDrawer={openDrawer} />;
+        return <PlayBjScreen onOpenDrawer={openDrawer} />;
     }
   };
 
   return (
-    <View style={styles.root}>
-      <StatusBar style="light" />
-      {renderScreen()}
-      <SideDrawer
-        visible={drawerOpen}
-        activeScreen={activeScreen}
-        onNavigate={navigate}
-        onClose={closeDrawer}
-      />
-    </View>
+    <LanPeerHost>
+      <View style={styles.root}>
+        <StatusBar style="light" />
+        {renderScreen()}
+        <SideDrawer
+          visible={drawerOpen}
+          activeScreen={activeScreen}
+          onNavigate={navigate}
+          onClose={closeDrawer}
+        />
+      </View>
+    </LanPeerHost>
   );
 }
 

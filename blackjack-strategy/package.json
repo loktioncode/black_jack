@@ -21,6 +21,7 @@
     "expo-status-bar": "~2.2.3",
     "react": "19.0.0",
     "react-native": "0.79.6",
+    "react-native-svg": "^15.15.5",
     "react-native-tcp-socket": "^6.4.1",
     "react-native-udp": "^4.1.7"
   },

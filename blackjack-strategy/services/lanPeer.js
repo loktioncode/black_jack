@@ -21,6 +21,12 @@ let peers = new Map();
 let broadcastTimer = null;
 let pruneTimer = null;
 let active = false;
+let gameSocket = null;
+let gameSession = null;
+let gameBuffer = '';
+let moveListeners = new Set();
+let startListeners = new Set();
+let peerListeners = new Set();
 
 function ensureNativeModules() {
   if (nativeChecked) return nativeAvailable;
@@ -45,7 +51,9 @@ function listPeers() {
 }
 
 function notifyPeers() {
-  handlers.onPeers?.(listPeers());
+  const list = listPeers();
+  handlers.onPeers?.(list);
+  peerListeners.forEach((fn) => fn(list));
 }
 
 function upsertPeer(payload, host) {
@@ -100,6 +108,39 @@ function broadcastPresence() {
   );
 }
 
+function attachGameSocket(socket) {
+  gameSocket = socket;
+  gameBuffer = '';
+  socket.on('data', (data) => {
+    gameBuffer += data.toString();
+    const parts = gameBuffer.split('\n');
+    gameBuffer = parts.pop() || '';
+    parts.forEach((line) => {
+      if (!line.trim()) return;
+      let msg;
+      try {
+        msg = JSON.parse(line.trim());
+      } catch {
+        return;
+      }
+      if (msg.type === 'game_move') {
+        moveListeners.forEach((fn) => fn(msg.payload));
+        handlers.onGameMove?.(msg.payload);
+      }
+      if (msg.type === 'game_state') {
+        handlers.onGameState?.(msg.payload);
+      }
+    });
+  });
+  socket.on('close', () => {
+    if (gameSocket === socket) {
+      gameSocket = null;
+      gameSession = null;
+      handlers.onGameEnd?.();
+    }
+  });
+}
+
 function handleTcpLine(line, socket) {
   let msg;
   try {
@@ -114,9 +155,34 @@ function handleTcpLine(line, socket) {
       fromUsername: msg.fromUsername,
       fromP2pCode: msg.fromP2pCode,
       gameId: msg.gameId,
-      couponStake: msg.couponStake || 1,
+      sessionId: msg.sessionId,
+      host: msg.host,
+      port: msg.port,
     });
     socket.write(`${JSON.stringify({ type: 'ack' })}\n`);
+    return;
+  }
+
+  if (msg.type === 'invite_accept') {
+    attachGameSocket(socket);
+    gameSession = msg;
+    handlers.onGameStart?.({
+      sessionId: msg.sessionId,
+      gameId: msg.gameId,
+      role: 'host',
+      opponent: {
+        userId: msg.userId,
+        username: msg.username,
+      },
+    });
+    startListeners.forEach((fn) =>
+      fn({
+        sessionId: msg.sessionId,
+        gameId: msg.gameId,
+        role: 'host',
+        opponent: { userId: msg.userId, username: msg.username },
+      })
+    );
   }
 }
 
@@ -253,12 +319,24 @@ export function stopLanPeer() {
   peers = new Map();
   localProfile = null;
   handlers = {};
+  if (gameSocket) {
+    try {
+      gameSocket.destroy();
+    } catch {
+      /* ignore */
+    }
+  }
+  gameSocket = null;
+  gameSession = null;
+  gameBuffer = '';
 }
 
-export function invitePeer(target, gameId = 'blackjack', couponStake = 1) {
+export function invitePeer(target, gameId = 'p2p', sessionId = null) {
   if (!ensureNativeModules() || !localProfile || !target?.host || !target?.port) {
     return Promise.resolve(false);
   }
+
+  const sid = sessionId || `sess_${Date.now().toString(36)}`;
 
   return new Promise((resolve) => {
     const client = TcpSocket.createConnection(
@@ -271,7 +349,9 @@ export function invitePeer(target, gameId = 'blackjack', couponStake = 1) {
             fromUsername: localProfile.username,
             fromP2pCode: localProfile.p2pCode,
             gameId,
-            couponStake,
+            sessionId: sid,
+            host: target.host,
+            port: tcpPort,
           })}\n`
         );
       }
@@ -286,13 +366,112 @@ export function invitePeer(target, gameId = 'blackjack', couponStake = 1) {
       } catch {
         /* ignore */
       }
-      resolve(ok);
+      resolve(ok ? sid : false);
     };
 
     client.on('data', () => finish(true));
     client.on('error', () => finish(false));
     setTimeout(() => finish(false), 5000);
   });
+}
+
+export function acceptGameInvite(invite, profile, hostPeer) {
+  if (!ensureNativeModules() || !hostPeer?.host || !hostPeer?.port) {
+    return Promise.resolve(false);
+  }
+
+  return new Promise((resolve) => {
+    const socket = TcpSocket.createConnection(
+      { port: hostPeer.port, host: hostPeer.host },
+      () => {
+        attachGameSocket(socket);
+        gameSession = { sessionId: invite.sessionId, gameId: invite.gameId };
+        socket.write(
+          `${JSON.stringify({
+            type: 'invite_accept',
+            sessionId: invite.sessionId,
+            gameId: invite.gameId,
+            userId: profile.userId,
+            username: profile.username,
+          })}\n`
+        );
+        handlers.onGameStart?.({
+          sessionId: invite.sessionId,
+          gameId: invite.gameId,
+          role: 'guest',
+          opponent: {
+            userId: invite.fromUserId,
+            username: invite.fromUsername,
+          },
+        });
+        startListeners.forEach((fn) =>
+          fn({
+            sessionId: invite.sessionId,
+            gameId: invite.gameId,
+            role: 'guest',
+            opponent: { userId: invite.fromUserId, username: invite.fromUsername },
+          })
+        );
+        resolve(true);
+      }
+    );
+
+    socket.on('error', () => resolve(false));
+    setTimeout(() => resolve(false), 8000);
+  });
+}
+
+export function sendGameMove(payload) {
+  if (!gameSocket) return false;
+  try {
+    gameSocket.write(`${JSON.stringify({ type: 'game_move', payload })}\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function sendGameState(payload) {
+  if (!gameSocket) return false;
+  try {
+    gameSocket.write(`${JSON.stringify({ type: 'game_state', payload })}\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function endGameSession() {
+  if (gameSocket) {
+    try {
+      gameSocket.destroy();
+    } catch {
+      /* ignore */
+    }
+  }
+  gameSocket = null;
+  gameSession = null;
+  gameBuffer = '';
+}
+
+export function onPeers(fn) {
+  peerListeners.add(fn);
+  if (active) fn(listPeers());
+  return () => peerListeners.delete(fn);
+}
+
+export function onGameMove(fn) {
+  moveListeners.add(fn);
+  return () => moveListeners.delete(fn);
+}
+
+export function onGameStart(fn) {
+  startListeners.add(fn);
+  return () => startListeners.delete(fn);
+}
+
+export function getGameSession() {
+  return gameSession;
 }
 
 export function getLanPeerHint() {

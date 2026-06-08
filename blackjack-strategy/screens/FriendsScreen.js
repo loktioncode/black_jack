@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Alert,
   FlatList,
   SafeAreaView,
   Share,
@@ -11,110 +10,44 @@ import {
   View,
 } from 'react-native';
 import AppHeader from '../components/AppHeader';
-import { COUPON_GAMES, useUser } from '../context/UserContext';
+import { useUser } from '../context/UserContext';
 import {
   getLanPeerHint,
-  invitePeer,
+  isLanPeerActive,
   isLanPeerAvailable,
-  startLanPeer,
-  stopLanPeer,
+  onPeers,
 } from '../services/lanPeer';
 
-export default function PlayFriendsScreen({ onOpenDrawer }) {
-  const { userId, username, p2pCode, updateUsername, coupons } = useUser();
+export default function FriendsScreen({ onOpenDrawer }) {
+  const { username, p2pCode, updateUsername } = useUser();
   const [nearbyPlayers, setNearbyPlayers] = useState([]);
-  const [peerState, setPeerState] = useState('idle'); // idle | connecting | online | offline | unavailable
+  const [peerState, setPeerState] = useState('idle');
   const [statusNote, setStatusNote] = useState(null);
   const [nameEdit, setNameEdit] = useState(username);
 
-  const peerHandlers = useCallback(
-    () => ({
-      onConnecting: () => {
-        setPeerState('connecting');
-        setStatusNote(null);
-      },
-      onReady: () => {
-        setPeerState('online');
-        setStatusNote(null);
-      },
-      onPeers: (users) => {
-        setNearbyPlayers(users);
-      },
-      onInvite: (payload) => {
-        Alert.alert(
-          'Game invite',
-          `${payload.fromUsername} invited you to play.`,
-          [{ text: 'OK' }]
-        );
-      },
-      onError: (message) => {
-        setPeerState('offline');
-        setStatusNote(message);
-      },
-      onUnavailable: () => {
-        setPeerState('unavailable');
-        setStatusNote(getLanPeerHint());
-      },
-    }),
-    []
-  );
-
-  const joinNearby = useCallback(() => {
+  useEffect(() => {
     if (!isLanPeerAvailable()) {
       setPeerState('unavailable');
       setStatusNote(getLanPeerHint());
-      return;
+      return undefined;
     }
-    startLanPeer({ userId, username, p2pCode }, peerHandlers());
-  }, [userId, username, p2pCode, peerHandlers]);
-
-  useEffect(() => {
-    joinNearby();
-    return () => stopLanPeer();
-  }, [joinNearby]);
+    if (isLanPeerActive()) {
+      setPeerState('online');
+    }
+    return onPeers((users) => {
+      setNearbyPlayers(users);
+      setPeerState('online');
+    });
+  }, []);
 
   const shareProfile = async () => {
     try {
       await Share.share({
-        message: `Play me on BJ Arena!\nUsername: ${username}\nP2P code: ${p2pCode}`,
+        message: `Connect with me on the app!\nUsername: ${username}\nP2P code: ${p2pCode}`,
       });
     } catch {
       /* cancelled */
     }
-  };
-
-  const saveUsername = () => {
-    updateUsername(nameEdit);
-  };
-
-  const sendInvite = (target) => {
-    const available = COUPON_GAMES.filter((g) => (coupons[g.id] || 0) > 0);
-    if (!available.length) {
-      Alert.alert('No coupons', 'Buy coupons first to stake a friend match.');
-      return;
-    }
-
-    Alert.alert(
-      'Pick a game',
-      `Invite ${target.username} to play`,
-      [
-        ...available.map((game) => ({
-          text: game.name,
-          onPress: async () => {
-            const ok = await invitePeer(target, game.id, 1);
-            if (ok) {
-              Alert.alert('Invite sent', `${target.username} can join your ${game.name} match.`);
-            } else {
-              Alert.alert(
-                'Try again',
-                "Couldn't reach that player. Make sure you're both on the same Wi‑Fi."
-              );
-            }
-          },
-        })),
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
   };
 
   const statusLabel = {
@@ -131,32 +64,27 @@ export default function PlayFriendsScreen({ onOpenDrawer }) {
         <Text style={styles.userName}>{item.username}</Text>
         <Text style={styles.userCode}>P2P {item.p2pCode}</Text>
       </View>
-      <TouchableOpacity style={styles.inviteBtn} onPress={() => sendInvite(item)}>
-        <Text style={styles.inviteBtnText}>Invite</Text>
-      </TouchableOpacity>
     </View>
   );
 
   return (
     <SafeAreaView style={styles.container}>
-      <AppHeader onMenuPress={onOpenDrawer} subtitle="Play Friends" />
+      <AppHeader onMenuPress={onOpenDrawer} subtitle="Friends" />
 
       <Text style={styles.intro}>
-        Connect with friends on the same Wi‑Fi. Invite them to any game — blackjack, dice, cards, and more.
+        Connect on the same Wi‑Fi to see friends nearby — no server needed.
       </Text>
 
       <View style={styles.profileCard}>
         <Text style={styles.profileTitle}>Your profile</Text>
-        <View style={styles.nameRow}>
-          <TextInput
-            style={styles.nameInput}
-            value={nameEdit}
-            onChangeText={setNameEdit}
-            onBlur={saveUsername}
-            placeholder="Username"
-            placeholderTextColor="#666"
-          />
-        </View>
+        <TextInput
+          style={styles.nameInput}
+          value={nameEdit}
+          onChangeText={setNameEdit}
+          onBlur={() => updateUsername(nameEdit)}
+          placeholder="Username"
+          placeholderTextColor="#666"
+        />
         <Text style={styles.profileMeta}>
           P2P code: <Text style={styles.highlight}>{p2pCode}</Text>
         </Text>
@@ -178,21 +106,9 @@ export default function PlayFriendsScreen({ onOpenDrawer }) {
         <Text style={styles.statusText}>{statusLabel}</Text>
       </View>
 
-      {statusNote && <Text style={styles.statusNote}>{statusNote}</Text>}
+      {statusNote ? <Text style={styles.statusNote}>{statusNote}</Text> : null}
 
-      {peerState === 'offline' && isLanPeerAvailable() && (
-        <TouchableOpacity
-          style={styles.retryBtn}
-          onPress={() => {
-            stopLanPeer();
-            joinNearby();
-          }}
-        >
-          <Text style={styles.retryBtnText}>Try again</Text>
-        </TouchableOpacity>
-      )}
-
-      <Text style={styles.sectionTitle}>Nearby on Wi‑Fi ({nearbyPlayers.length})</Text>
+      <Text style={styles.sectionTitle}>Friends on Wi‑Fi ({nearbyPlayers.length})</Text>
       <FlatList
         data={nearbyPlayers}
         keyExtractor={(item) => item.userId}
@@ -200,7 +116,7 @@ export default function PlayFriendsScreen({ onOpenDrawer }) {
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <Text style={styles.empty}>
-            No friends nearby yet. Anyone on the same Wi‑Fi will show up here so you can invite them to play.
+            No friends nearby yet. Anyone on the same Wi‑Fi appears here automatically.
           </Text>
         }
       />
@@ -233,7 +149,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 10,
   },
-  nameRow: { marginBottom: 8 },
   nameInput: {
     color: '#fff',
     fontSize: 20,
@@ -241,8 +156,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#4ECDC4',
     paddingVertical: 4,
+    marginBottom: 8,
   },
-  profileMeta: { color: '#aaa', fontSize: 13, marginTop: 4 },
+  profileMeta: { color: '#aaa', fontSize: 13 },
   highlight: { color: '#4ECDC4', fontWeight: '700' },
   shareBtn: {
     marginTop: 14,
@@ -265,16 +181,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     lineHeight: 18,
   },
-  retryBtn: {
-    alignSelf: 'center',
-    marginTop: 10,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#4ECDC4',
-  },
-  retryBtnText: { color: '#4ECDC4', fontWeight: '600' },
   sectionTitle: {
     color: '#fff',
     fontSize: 16,
@@ -295,15 +201,6 @@ const styles = StyleSheet.create({
   userInfo: { flex: 1 },
   userName: { color: '#fff', fontSize: 16, fontWeight: '600' },
   userCode: { color: '#4ECDC4', fontSize: 13, marginTop: 2 },
-  inviteBtn: {
-    backgroundColor: '#2d1f4e',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#9b59b6',
-  },
-  inviteBtnText: { color: '#9b59b6', fontWeight: '700' },
   empty: {
     color: '#666',
     textAlign: 'center',
