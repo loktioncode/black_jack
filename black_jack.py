@@ -590,7 +590,7 @@ def execute_recommended_action(player_hand: Hand, dealer_card: str, action: Acti
         if player_hand.is_busted:
             print("BUST")
         else:
-            strategy = BasicStrategy(Rules(dealer_hits_soft_17=True))
+            strategy = BasicStrategy(Rules())
             next_rec = strategy.get_recommendation(player_hand, dealer_card)
             print(f"Next: {next_rec.value}")
     
@@ -658,7 +658,7 @@ def execute_recommended_action(player_hand: Hand, dealer_card: str, action: Acti
             print(f"H1: {hand1}")
             print(f"H2: {hand2}")
             
-            strategy = BasicStrategy(Rules(dealer_hits_soft_17=True))
+            strategy = BasicStrategy(Rules())
             rec1 = strategy.get_recommendation(hand1, dealer_card)
             rec2 = strategy.get_recommendation(hand2, dealer_card)
             print(f"H1 next: {rec1.value} | H2 next: {rec2.value}")
@@ -697,7 +697,7 @@ def simulate_action(player_hand: Hand, dealer_card: str, action: Action):
             print("BUST! Hand is over.")
         else:
             # Get new recommendation
-            strategy = BasicStrategy(Rules(dealer_hits_soft_17=True))
+            strategy = BasicStrategy(Rules())
             new_recommendation = strategy.get_recommendation(player_hand, dealer_card)
             print(f"New recommendation: {new_recommendation.value}")
             
@@ -770,7 +770,7 @@ def simulate_action(player_hand: Hand, dealer_card: str, action: Action):
             print(f"   Cards drawn: {card1_drawn} and {card2_drawn}")
             
             # Get recommendations for each hand
-            strategy = BasicStrategy(Rules(dealer_hits_soft_17=True))
+            strategy = BasicStrategy(Rules())
             rec1 = strategy.get_recommendation(hand1, dealer_card)
             rec2 = strategy.get_recommendation(hand2, dealer_card)
             
@@ -803,7 +803,7 @@ def game_advice_mode():
     print("=" * 50)
 
     # Initialize with standard rules and bankroll system
-    rules = Rules(dealer_hits_soft_17=True)
+    rules = Rules()
     strategy = BasicStrategy(rules)
     game_stats = GameStats()
     game = BlackjackGame(rules, strategy)
@@ -921,7 +921,7 @@ def interactive_play_mode():
     print("INTERACTIVE PLAY MODE")
     print("=" * 50)
 
-    rules = Rules(dealer_hits_soft_17=True)
+    rules = Rules()
     strategy = BasicStrategy(rules)
 
     base_bet = get_integer_input("Enter your base bet amount (R10-R100): ", 10, 100)

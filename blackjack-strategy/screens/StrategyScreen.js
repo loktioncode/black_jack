@@ -13,7 +13,7 @@ import {
 import { BasicStrategy, Hand, Actions, getActionDescription } from '../utils/basicStrategy';
 import { CardCounter, getAdjustedRecommendation, formatCountLabel } from '../utils/cardCounting';
 import { CARDS } from '../utils/cardUtils';
-import { DEFAULT_TABLE_RULES, getRuleSummary } from '../utils/tableRules';
+import { DEFAULT_TABLE_RULES, getDefaultRulesNote, getRuleSummary } from '../utils/tableRules';
 import AppHeader from '../components/AppHeader';
 import DeckSelector from '../components/DeckSelector';
 import SettingsDrawer from '../components/SettingsDrawer';
@@ -33,7 +33,7 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
   const [cardCounter, setCardCounter] = useState(null);
   const [handsPlayed, setHandsPlayed] = useState(0);
   const [cardCountingEnabled, setCardCountingEnabled] = useState(false);
-  const [dealerHitsSoft17, setDealerHitsSoft17] = useState(true);
+  const [dealerHitsSoft17, setDealerHitsSoft17] = useState(DEFAULT_TABLE_RULES.dealerHitsSoft17);
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
   const [hasShownCountingPrompt, setHasShownCountingPrompt] = useState(false);
   const [isBusted, setIsBusted] = useState(false);
@@ -41,7 +41,7 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
   const finishingHandRef = useRef(false);
 
   useEffect(() => {
-    loadDealerHitsSoft17(true).then(setDealerHitsSoft17);
+    loadDealerHitsSoft17().then(setDealerHitsSoft17);
   }, []);
 
   const handleDealerRuleChange = useCallback((hitsSoft17) => {
@@ -265,7 +265,11 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
           subtitle="Strategy"
           onHelpPress={openSettings}
         />
-        <DeckSelector title="Strategy Lookup" onSelect={selectDeckSize} />
+        <DeckSelector
+          title="Strategy Lookup"
+          onSelect={selectDeckSize}
+          rulesNote={getDefaultRulesNote({ ...DEFAULT_TABLE_RULES, dealerHitsSoft17 })}
+        />
         {settingsDrawer}
       </SafeAreaView>
     );

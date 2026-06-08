@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { formatCountLabel } from '../utils/cardCounting';
 import DealerSoft17Switch from './DealerSoft17Switch';
+import { DEFAULT_TABLE_RULES } from '../utils/tableRules';
 
 export default function SettingsDrawer({
   visible,
@@ -56,7 +57,7 @@ export default function SettingsDrawer({
           {onDealerHitsSoft17Change && (
             <View style={styles.ruleSwitchWrap}>
               <DealerSoft17Switch
-                value={dealerHitsSoft17 ?? true}
+                value={dealerHitsSoft17 ?? DEFAULT_TABLE_RULES.dealerHitsSoft17}
                 onValueChange={onDealerHitsSoft17Change}
               />
             </View>

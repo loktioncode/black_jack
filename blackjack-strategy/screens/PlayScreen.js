@@ -34,8 +34,12 @@ import {
   playerStand,
   startRound,
 } from '../utils/gameEngine';
-import { canDoubleHand, canSplitHand, DEFAULT_TABLE_RULES } from '../utils/tableRules';
-import { loadDealerHitsSoft17, saveDealerHitsSoft17 } from '../utils/tableRulePrefs';
+import {
+  canDoubleHand,
+  canSplitHand,
+  DEFAULT_TABLE_RULES,
+  getDefaultRulesNote,
+} from '../utils/tableRules';
 import {
   applyRoundResults,
   emptyPracticeStats,
@@ -63,39 +67,21 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
   const [showHints, setShowHints] = useState(true);
   const [hintDrawerOpen, setHintDrawerOpen] = useState(false);
   const [statsDrawerOpen, setStatsDrawerOpen] = useState(false);
-  const [dealerHitsSoft17, setDealerHitsSoft17] = useState(true);
   const [practiceStats, setPracticeStats] = useState(emptyPracticeStats());
   const [dealKey, setDealKey] = useState(0);
   const pulse = useRef(new Animated.Value(1)).current;
   const lastRecordedHandRef = useRef(0);
 
-  const dealerHitsSoft17FromGame = game?.rules?.dealerHitsSoft17 ?? dealerHitsSoft17;
   const strategy = useMemo(
-    () => new BasicStrategy(dealerHitsSoft17FromGame),
-    [dealerHitsSoft17FromGame]
+    () => new BasicStrategy(DEFAULT_TABLE_RULES.dealerHitsSoft17),
+    []
   );
-
-  useEffect(() => {
-    loadDealerHitsSoft17(true).then(setDealerHitsSoft17);
-  }, []);
 
   const selectDeckSize = useCallback((size) => {
     lastRecordedHandRef.current = 0;
     setDeckSize(size);
     setCardCounter(new CardCounter(size));
-    setGame(createInitialGameState(size, STARTING_BANKROLL, 10, {
-      ...DEFAULT_TABLE_RULES,
-      dealerHitsSoft17,
-    }));
-  }, [dealerHitsSoft17]);
-
-  const handleDealerRuleChange = useCallback((hitsSoft17) => {
-    setDealerHitsSoft17(hitsSoft17);
-    saveDealerHitsSoft17(hitsSoft17);
-    setGame((prev) => {
-      if (!prev) return prev;
-      return { ...prev, rules: { ...prev.rules, dealerHitsSoft17: hitsSoft17 } };
-    });
+    setGame(createInitialGameState(size, STARTING_BANKROLL, 10, DEFAULT_TABLE_RULES));
   }, []);
 
   useEffect(() => {
@@ -216,7 +202,7 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
         <DeckSelector
           title="Practice Table"
           onSelect={selectDeckSize}
-          rulesNote={`${dealerHitsSoft17 ? 'H17' : 'S17'} · 3:2 BJ · double any two cards · DAS · split aces one card · dealer peek`}
+          rulesNote={getDefaultRulesNote()}
         />
       </SafeAreaView>
     );
@@ -449,8 +435,6 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
         onCardCountingChange={setCardCountingEnabled}
         cardCounter={cardCounter}
         tableRules={tableRules}
-        dealerHitsSoft17={dealerHitsSoft17FromGame}
-        onDealerHitsSoft17Change={handleDealerRuleChange}
       />
 
       <StatsDrawer

@@ -1,9 +1,9 @@
 import { Hand } from './basicStrategy';
 import { cardsToRanks } from './cardUtils';
 
-/** Standard 6-deck Vegas-style rules (H17, DAS, 3:2 BJ) */
+/** Standard 6-deck rules (S17, DAS, 3:2 BJ) */
 export const DEFAULT_TABLE_RULES = {
-  dealerHitsSoft17: true,
+  dealerHitsSoft17: false,
   blackjackPays: 1.5,
   /** 'any' | '9-11' | '10-11' */
   doubleOn: 'any',
@@ -15,6 +15,11 @@ export const DEFAULT_TABLE_RULES = {
   doubleSplitAces: false,
   peekOnAceAndTen: true,
 };
+
+export function getDefaultRulesNote(rules = DEFAULT_TABLE_RULES) {
+  const soft17 = rules.dealerHitsSoft17 ? 'H17' : 'S17';
+  return `${soft17} · 3:2 BJ · double any two cards · DAS · split aces one card · dealer peek`;
+}
 
 export function getRuleSummary(rules = DEFAULT_TABLE_RULES) {
   const lines = [

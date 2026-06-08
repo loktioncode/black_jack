@@ -66,7 +66,7 @@ export class Hand {
 }
 
 export class BasicStrategy {
-  constructor(dealerHitsSoft17 = true) {
+  constructor(dealerHitsSoft17 = false) {
     this.dealerHitsSoft17 = dealerHitsSoft17;
   }
 
