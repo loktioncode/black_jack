@@ -1,9 +1,11 @@
-// Basic Strategy Logic for Blackjack
+// Basic Strategy Logic for Blackjack (6-deck H17/S17, DAS)
+import { isTenValue, pairRank, pairValuesMatch } from './cardUtils';
+
 export const Actions = {
   HIT: 'H',
-  STAND: 'ST', 
+  STAND: 'ST',
   DOUBLE: 'D',
-  SPLIT: 'SP'
+  SPLIT: 'SP',
 };
 
 export class Hand {
@@ -18,18 +20,17 @@ export class Hand {
     let value = 0;
     let aces = 0;
 
-    for (let card of this.cards) {
-      if (['J', 'Q', 'K'].includes(card)) {
+    for (const card of this.cards) {
+      if (isTenValue(card)) {
         value += 10;
       } else if (card === 'A') {
         aces += 1;
         value += 1;
       } else {
-        value += parseInt(card);
+        value += parseInt(card, 10);
       }
     }
 
-    // Try to make one ace count as 11 if it doesn't bust
     if (aces > 0 && value + 10 <= 21) {
       value += 10;
     }
@@ -41,14 +42,14 @@ export class Hand {
     let value = 0;
     let aces = 0;
 
-    for (let card of this.cards) {
-      if (['J', 'Q', 'K'].includes(card)) {
+    for (const card of this.cards) {
+      if (isTenValue(card)) {
         value += 10;
       } else if (card === 'A') {
         aces += 1;
         value += 1;
       } else {
-        value += parseInt(card);
+        value += parseInt(card, 10);
       }
     }
 
@@ -56,7 +57,7 @@ export class Hand {
   }
 
   checkIsPair() {
-    return this.cards.length === 2 && this.cards[0] === this.cards[1];
+    return this.cards.length === 2 && pairValuesMatch(this.cards[0], this.cards[1]);
   }
 
   get isBusted() {
@@ -69,18 +70,41 @@ export class BasicStrategy {
     this.dealerHitsSoft17 = dealerHitsSoft17;
   }
 
-  getBasicRecommendation(playerHand, dealerCard) {
+  getBasicRecommendation(playerHand, dealerCard, { ignorePair = false } = {}) {
     const dealerValue = this.getCardValue(dealerCard);
+    let action;
 
-    if (playerHand.isPair) {
-      return this.getPairStrategy(playerHand.cards[0], dealerValue);
+    if (!ignorePair && playerHand.isPair) {
+      action = this.getPairStrategy(pairRank(playerHand.cards[0]), dealerValue);
+    } else if (playerHand.issoft) {
+      action = this.getSoftStrategy(playerHand.value, dealerValue);
+    } else {
+      action = this.getHardStrategy(playerHand.value, dealerValue);
     }
 
-    if (playerHand.issoft) {
-      return this.getSoftStrategy(playerHand.value, dealerValue);
+    return this.applyTwoCardDoubleRule(action, playerHand.cards.length);
+  }
+
+  /** Double/split only on first two cards; if split blocked, re-evaluate as hard/soft hand. */
+  resolvePlayAction(playerHand, dealerCard, action, { canDouble = true, canSplit = true } = {}) {
+    let resolved = action;
+
+    if (resolved === Actions.SPLIT && !canSplit) {
+      resolved = this.getBasicRecommendation(playerHand, dealerCard, { ignorePair: true });
     }
 
-    return this.getHardStrategy(playerHand.value, dealerValue);
+    if (resolved === Actions.DOUBLE && !canDouble) {
+      resolved = Actions.HIT;
+    }
+
+    return resolved;
+  }
+
+  applyTwoCardDoubleRule(action, cardCount) {
+    if (cardCount > 2 && action === Actions.DOUBLE) {
+      return Actions.HIT;
+    }
+    return action;
   }
 
   getRecommendation(playerHand, dealerCard) {
@@ -88,127 +112,119 @@ export class BasicStrategy {
   }
 
   getCardValue(card) {
-    if (['J', 'Q', 'K'].includes(card)) {
+    if (isTenValue(card)) {
       return 10;
-    } else if (card === 'A') {
-      return 11; // For dealer strategy, treat Ace as 11
-    } else {
-      return parseInt(card);
     }
+    if (card === 'A') {
+      return 11;
+    }
+    return parseInt(card, 10);
   }
 
   getPairStrategy(pairCard, dealerValue) {
     if (pairCard === 'A') {
       return Actions.SPLIT;
-    } else if (pairCard === '8') {
+    }
+    if (pairCard === '8') {
       return Actions.SPLIT;
-    } else if (pairCard === '9') {
+    }
+    if (pairCard === '9') {
       if ([7, 10, 11].includes(dealerValue)) {
         return Actions.STAND;
-      } else {
-        return Actions.SPLIT;
       }
-    } else if (['2', '3'].includes(pairCard)) {
-      if (dealerValue <= 7) {
-        return Actions.SPLIT;
-      } else {
-        return Actions.HIT;
-      }
-    } else if (pairCard === '7') {
-      if (dealerValue <= 7) {
-        return Actions.SPLIT;
-      } else {
-        return Actions.HIT;
-      }
-    } else if (pairCard === '6') {
-      if (dealerValue <= 6) {
-        return Actions.SPLIT;
-      } else {
-        return Actions.HIT;
-      }
-    } else if (pairCard === '5') {
-      if (dealerValue <= 9) {
-        return Actions.DOUBLE;
-      } else {
-        return Actions.HIT;
-      }
-    } else if (pairCard === '4') {
-      if ([5, 6].includes(dealerValue)) {
-        return Actions.SPLIT;
-      } else {
-        return Actions.HIT;
-      }
-    } else { // 10, J, Q, K
-      return Actions.STAND;
+      return Actions.SPLIT;
     }
+    if (['2', '3'].includes(pairCard)) {
+      return dealerValue <= 7 ? Actions.SPLIT : Actions.HIT;
+    }
+    if (pairCard === '7') {
+      return dealerValue <= 7 ? Actions.SPLIT : Actions.HIT;
+    }
+    if (pairCard === '6') {
+      return dealerValue <= 6 ? Actions.SPLIT : Actions.HIT;
+    }
+    if (pairCard === '5') {
+      return dealerValue <= 9 ? Actions.DOUBLE : Actions.HIT;
+    }
+    if (pairCard === '4') {
+      return [5, 6].includes(dealerValue) ? Actions.SPLIT : Actions.HIT;
+    }
+    return Actions.STAND;
   }
 
   getSoftStrategy(handValue, dealerValue) {
+    const h17 = this.dealerHitsSoft17;
+
+    if (handValue >= 20) {
+      return Actions.STAND;
+    }
+
     if (handValue === 19) {
+      if (h17 && [3, 4, 5, 6].includes(dealerValue)) {
+        return Actions.DOUBLE;
+      }
       return Actions.STAND;
-    } else if (handValue >= 20) {
-      return Actions.STAND;
-    } else if (handValue === 18) {
+    }
+
+    if (handValue === 18) {
       if ([3, 4, 5, 6].includes(dealerValue)) {
         return Actions.DOUBLE;
-      } else if ([2, 7, 8].includes(dealerValue)) {
+      }
+      if (dealerValue === 2) {
+        return h17 ? Actions.DOUBLE : Actions.STAND;
+      }
+      if ([7, 8].includes(dealerValue)) {
         return Actions.STAND;
-      } else {
-        return Actions.HIT;
       }
-    } else { // 17 or less
-      if ([5, 6].includes(dealerValue)) {
-        return Actions.DOUBLE;
-      } else {
-        return Actions.HIT;
-      }
+      return Actions.HIT;
     }
+
+    if (handValue === 17) {
+      if ([3, 4, 5, 6].includes(dealerValue)) {
+        return Actions.DOUBLE;
+      }
+      return Actions.HIT;
+    }
+
+    if (handValue === 16 || handValue === 15) {
+      if ([4, 5, 6].includes(dealerValue)) {
+        return Actions.DOUBLE;
+      }
+      return Actions.HIT;
+    }
+
+    if ([5, 6].includes(dealerValue)) {
+      return Actions.DOUBLE;
+    }
+    return Actions.HIT;
   }
 
   getHardStrategy(handValue, dealerValue) {
     if (handValue >= 17) {
       return Actions.STAND;
-    } else if (handValue === 16) {
-      if (dealerValue <= 6) {
-        return Actions.STAND;
-      } else {
-        return Actions.HIT;
-      }
-    } else if (handValue === 15) {
-      if (dealerValue <= 6) {
-        return Actions.STAND;
-      } else {
-        return Actions.HIT;
-      }
-    } else if (handValue >= 13) {
-      if (dealerValue <= 6) {
-        return Actions.STAND;
-      } else {
-        return Actions.HIT;
-      }
-    } else if (handValue === 12) {
-      if ([4, 5, 6].includes(dealerValue)) {
-        return Actions.STAND;
-      } else {
-        return Actions.HIT;
-      }
-    } else if (handValue === 11) {
-      return Actions.DOUBLE;
-    } else if (handValue === 10) {
-      if (dealerValue <= 9) {
-        return Actions.DOUBLE;
-      } else {
-        return Actions.HIT;
-      }
-    } else if (handValue === 9) {
-      if ([3, 4, 5, 6].includes(dealerValue)) {
-        return Actions.DOUBLE;
-      } else {
-        return Actions.HIT;
-      }
-    } else {
-      return Actions.HIT;
     }
+    if (handValue === 16 || handValue === 15) {
+      return dealerValue <= 6 ? Actions.STAND : Actions.HIT;
+    }
+    if (handValue >= 13) {
+      return dealerValue <= 6 ? Actions.STAND : Actions.HIT;
+    }
+    if (handValue === 12) {
+      return [4, 5, 6].includes(dealerValue) ? Actions.STAND : Actions.HIT;
+    }
+    if (handValue === 11) {
+      if (dealerValue === 11 && !this.dealerHitsSoft17) {
+        return Actions.HIT;
+      }
+      return Actions.DOUBLE;
+    }
+    if (handValue === 10) {
+      return dealerValue <= 9 ? Actions.DOUBLE : Actions.HIT;
+    }
+    if (handValue === 9) {
+      return [3, 4, 5, 6].includes(dealerValue) ? Actions.DOUBLE : Actions.HIT;
+    }
+    return Actions.HIT;
   }
 }
 

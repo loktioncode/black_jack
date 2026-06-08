@@ -21,17 +21,31 @@ class Hand:
         self.cards = cards
         self.bet = bet
         self.value, self.is_soft = self._calculate_value()
-        self.is_pair = len(cards) == 2 and cards[0] == cards[1]
+        self.is_pair = len(cards) == 2 and self._pair_values_match(cards[0], cards[1])
         self.is_blackjack = len(cards) == 2 and self.value == 21
         self.is_busted = self.value > 21
         self.stood = False
+
+    @staticmethod
+    def _is_ten_value(card: str) -> bool:
+        return card in ['10', 'J', 'Q', 'K']
+
+    @staticmethod
+    def _pair_rank(card: str) -> str:
+        if Hand._is_ten_value(card):
+            return '10'
+        return card
+
+    @staticmethod
+    def _pair_values_match(a: str, b: str) -> bool:
+        return Hand._pair_rank(a) == Hand._pair_rank(b)
 
     def _calculate_value(self) -> Tuple[int, bool]:
         value = 0
         aces = 0
 
         for card in self.cards:
-            if card in ['J', 'Q', 'K']:
+            if card in ['J', 'Q', 'K', '10']:
                 value += 10
             elif card == 'A':
                 aces += 1
@@ -84,27 +98,55 @@ class BasicStrategy:
     def __init__(self, rules: Rules):
         self.rules = rules
 
-    def get_recommendation(self, player_hand: Hand, dealer_card: str) -> Action:
+    def get_recommendation(self, player_hand: Hand, dealer_card: str, ignore_pair: bool = False) -> Action:
         dealer_value = self._card_value(dealer_card)
+        action: Action
 
-        # Check for pairs
-        if player_hand.is_pair:
-            return self._pair_strategy(player_hand.cards[0], dealer_value)
+        if not ignore_pair and player_hand.is_pair:
+            action = self._pair_strategy(self._pair_rank(player_hand.cards[0]), dealer_value)
+        elif player_hand.is_soft:
+            action = self._soft_strategy(player_hand.value, dealer_value)
+        else:
+            action = self._hard_strategy(player_hand.value, dealer_value)
 
-        # Check for soft hands
-        if player_hand.is_soft:
-            return self._soft_strategy(player_hand.value, dealer_value)
+        return self._apply_two_card_double_rule(action, len(player_hand.cards))
 
-        # Hard hands
-        return self._hard_strategy(player_hand.value, dealer_value)
+    def resolve_play_action(
+        self,
+        player_hand: Hand,
+        dealer_card: str,
+        action: Action,
+        can_double: bool = True,
+        can_split: bool = True,
+    ) -> Action:
+        resolved = action
+
+        if resolved == Action.SPLIT and not can_split:
+            resolved = self.get_recommendation(player_hand, dealer_card, ignore_pair=True)
+
+        if resolved == Action.DOUBLE and not can_double:
+            resolved = Action.HIT
+
+        return resolved
+
+    def _apply_two_card_double_rule(self, action: Action, card_count: int) -> Action:
+        if card_count > 2 and action == Action.DOUBLE:
+            return Action.HIT
+        return action
 
     def _card_value(self, card: str) -> int:
-        if card in ['J', 'Q', 'K']:
+        if card in ['J', 'Q', 'K', '10']:
             return 10
         elif card == 'A':
-            return 11  # For dealer strategy, we treat Ace as 11
+            return 11
         else:
             return int(card)
+
+    @staticmethod
+    def _pair_rank(card: str) -> str:
+        if card in ['10', 'J', 'Q', 'K']:
+            return '10'
+        return card
 
     def _pair_strategy(self, pair_card: str, dealer_value: int) -> Action:
         if pair_card == 'A':
@@ -112,26 +154,26 @@ class BasicStrategy:
         elif pair_card == '8':
             return Action.SPLIT
         elif pair_card == '9':
-            if dealer_value in [7, 10, 11]:  # vs 7, 10, or Ace
+            if dealer_value in [7, 10, 11]:
                 return Action.STAND
             else:
                 return Action.SPLIT
         elif pair_card in ['2', '3']:
-            if dealer_value <= 7:  # vs 2-7 only
+            if dealer_value <= 7:
                 return Action.SPLIT
             else:
                 return Action.HIT
         elif pair_card == '7':
-            if dealer_value <= 7:  # vs 2-7
+            if dealer_value <= 7:
                 return Action.SPLIT
             else:
                 return Action.HIT
         elif pair_card == '6':
-            if dealer_value <= 6:  # vs 2-6
+            if dealer_value <= 6:
                 return Action.SPLIT
             else:
                 return Action.HIT
-        elif pair_card == '5':  # Pair of 5s should double like hard 10
+        elif pair_card == '5':
             if dealer_value <= 9:
                 return Action.DOUBLE
             else:
@@ -141,37 +183,47 @@ class BasicStrategy:
                 return Action.SPLIT
             else:
                 return Action.HIT
-        else:  # 10, J, Q, K
+        else:
             return Action.STAND
 
     def _soft_strategy(self, hand_value: int, dealer_value: int) -> Action:
-        if hand_value == 19:  # A,8 (soft 19)
-            # Always stand on soft 19 - too strong to risk
+        h17 = self.rules.dealer_hits_soft_17
+
+        if hand_value >= 20:
             return Action.STAND
-        elif hand_value >= 20:  # A,9 (soft 20)
-            return Action.STAND
-        elif hand_value == 18:  # A,7 (soft 18)
-            if dealer_value in [3, 4, 5, 6]:  # Double vs 3-6
+
+        if hand_value == 19:
+            if h17 and dealer_value in [3, 4, 5, 6]:
                 return Action.DOUBLE
-            elif dealer_value in [2, 7, 8]:  # Stand vs 2, 7, 8
+            return Action.STAND
+
+        if hand_value == 18:
+            if dealer_value in [3, 4, 5, 6]:
+                return Action.DOUBLE
+            if dealer_value == 2:
+                return Action.DOUBLE if h17 else Action.STAND
+            if dealer_value in [7, 8]:
                 return Action.STAND
-            else:  # Hit vs 9, 10, or Ace
-                return Action.HIT
-        else:  # 17 or less (A,2 through A,6)
-            if dealer_value in [5, 6]:
+            return Action.HIT
+
+        if hand_value == 17:
+            if dealer_value in [3, 4, 5, 6]:
                 return Action.DOUBLE
-            else:
-                return Action.HIT
+            return Action.HIT
+
+        if hand_value in [15, 16]:
+            if dealer_value in [4, 5, 6]:
+                return Action.DOUBLE
+            return Action.HIT
+
+        if dealer_value in [5, 6]:
+            return Action.DOUBLE
+        return Action.HIT
 
     def _hard_strategy(self, hand_value: int, dealer_value: int) -> Action:
         if hand_value >= 17:
             return Action.STAND
-        elif hand_value == 16:
-            if dealer_value <= 6:
-                return Action.STAND
-            else:
-                return Action.HIT
-        elif hand_value == 15:
+        elif hand_value in [15, 16]:
             if dealer_value <= 6:
                 return Action.STAND
             else:
@@ -187,9 +239,11 @@ class BasicStrategy:
             else:
                 return Action.HIT
         elif hand_value == 11:
-            return Action.DOUBLE  # Always double 11 vs any dealer card
+            if dealer_value == 11 and not self.rules.dealer_hits_soft_17:
+                return Action.HIT
+            return Action.DOUBLE
         elif hand_value == 10:
-            if dealer_value <= 9:  # Don't double vs 10 or Ace
+            if dealer_value <= 9:
                 return Action.DOUBLE
             else:
                 return Action.HIT
@@ -198,7 +252,7 @@ class BasicStrategy:
                 return Action.DOUBLE
             else:
                 return Action.HIT
-        else:  # 8 or less
+        else:
             return Action.HIT
 
 class GameStats:

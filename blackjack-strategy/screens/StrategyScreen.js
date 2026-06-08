@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { 
   StyleSheet, 
@@ -9,13 +9,15 @@ import {
   ScrollView,
   SafeAreaView,
   Alert,
-  Switch,
 } from 'react-native';
 import { BasicStrategy, Hand, Actions, getActionDescription } from '../utils/basicStrategy';
 import { CardCounter, getAdjustedRecommendation, formatCountLabel } from '../utils/cardCounting';
 import { CARDS } from '../utils/cardUtils';
+import { DEFAULT_TABLE_RULES, getRuleSummary } from '../utils/tableRules';
 import AppHeader from '../components/AppHeader';
 import DeckSelector from '../components/DeckSelector';
+import SettingsDrawer from '../components/SettingsDrawer';
+import { loadDealerHitsSoft17, saveDealerHitsSoft17 } from '../utils/tableRulePrefs';
 
 const HANDS_BEFORE_COUNTING_PROMPT = 10;
 const BUST_AUTO_RESET_MS = 2500;
@@ -31,17 +33,38 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
   const [cardCounter, setCardCounter] = useState(null);
   const [handsPlayed, setHandsPlayed] = useState(0);
   const [cardCountingEnabled, setCardCountingEnabled] = useState(false);
+  const [dealerHitsSoft17, setDealerHitsSoft17] = useState(true);
+  const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
   const [hasShownCountingPrompt, setHasShownCountingPrompt] = useState(false);
   const [isBusted, setIsBusted] = useState(false);
   const [showRecommendationModal, setShowRecommendationModal] = useState(false);
   const finishingHandRef = useRef(false);
 
   useEffect(() => {
+    loadDealerHitsSoft17(true).then(setDealerHitsSoft17);
+  }, []);
+
+  const handleDealerRuleChange = useCallback((hitsSoft17) => {
+    setDealerHitsSoft17(hitsSoft17);
+    saveDealerHitsSoft17(hitsSoft17);
+  }, []);
+
+  useEffect(() => {
     if (deckSize) {
-      setStrategy(new BasicStrategy(true));
       setCardCounter(new CardCounter(deckSize));
     }
   }, [deckSize]);
+
+  useEffect(() => {
+    setStrategy(new BasicStrategy(dealerHitsSoft17));
+  }, [dealerHitsSoft17]);
+
+  const chartRules = useMemo(
+    () => getRuleSummary({ ...DEFAULT_TABLE_RULES, dealerHitsSoft17 }),
+    [dealerHitsSoft17]
+  );
+
+  const openSettings = useCallback(() => setSettingsDrawerOpen(true), []);
 
   const clearCurrentHand = useCallback(() => {
     setPlayerCards([]);
@@ -58,7 +81,7 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
       if (newHandsPlayed >= HANDS_BEFORE_COUNTING_PROMPT && !shown) {
         Alert.alert(
           'Try count-adjusted strategy?',
-          `You've played ${newHandsPlayed} hands. Turn on the switch below to blend Hi-Lo (RC/TC) with basic strategy — we never recommend counting-only plays.`,
+          `You've played ${newHandsPlayed} hands. Open Settings (?) to blend Hi-Lo (RC/TC) with basic strategy.`,
           [
             { text: 'Got it', style: 'cancel' },
             { text: 'Turn On', onPress: () => setCardCountingEnabled(true) },
@@ -112,9 +135,13 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
 
       setIsBusted(false);
       const trueCount = cardCountingEnabled && cardCounter ? cardCounter.trueCount : null;
-      const result = getAdjustedRecommendation(strategy, hand, dealerCard, trueCount);
+      const playOptions = {
+        canDouble: playerCards.length === 2,
+        canSplit: playerCards.length === 2 && hand.isPair,
+      };
+      const result = getAdjustedRecommendation(strategy, hand, dealerCard, trueCount, playOptions);
       setRecommendation(result.action);
-      setDeviationInfo(result.deviated ? result : null);
+      setDeviationInfo(result.deviated || result.playFallback ? result : null);
       setShowRecommendationModal(true);
     } else if (!isBusted) {
       setRecommendation(null);
@@ -168,7 +195,30 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
     if (deckSize) setCardCounter(new CardCounter(deckSize));
   };
 
+  const handleChangeDecks = () => {
+    setSettingsDrawerOpen(false);
+    setShowDeckSelector(true);
+    clearCurrentHand();
+    setHandsPlayed(0);
+    setHasShownCountingPrompt(false);
+  };
 
+  const settingsDrawer = (
+    <SettingsDrawer
+      visible={settingsDrawerOpen}
+      onClose={() => setSettingsDrawerOpen(false)}
+      variant="strategy"
+      cardCountingEnabled={cardCountingEnabled}
+      onCardCountingChange={setCardCountingEnabled}
+      cardCounter={cardCounter}
+      dealerHitsSoft17={dealerHitsSoft17}
+      onDealerHitsSoft17Change={handleDealerRuleChange}
+      tableRules={chartRules}
+      onResetShoe={resetShoe}
+      onChangeDecks={deckSize ? handleChangeDecks : undefined}
+      deckSize={deckSize}
+    />
+  );
 
   const getActionColor = (action) => {
     switch (action) {
@@ -209,8 +259,14 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar style="light" />
-        <AppHeader onMenuPress={onOpenDrawer} onBackPress={onBack} subtitle="Strategy" />
+        <AppHeader
+          onMenuPress={onOpenDrawer}
+          onBackPress={onBack}
+          subtitle="Strategy"
+          onHelpPress={openSettings}
+        />
         <DeckSelector title="Strategy Lookup" onSelect={selectDeckSize} />
+        {settingsDrawer}
       </SafeAreaView>
     );
   }
@@ -221,55 +277,18 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
       <AppHeader
         onMenuPress={onOpenDrawer}
         onBackPress={onBack}
-        subtitle={`${deckSize} Deck${deckSize > 1 ? 's' : ''} · Hand ${handsPlayed + 1}`}
+        subtitle={`${deckSize} Deck${deckSize > 1 ? 's' : ''} · ${dealerHitsSoft17 ? 'H17' : 'S17'} · Hand ${handsPlayed + 1}`}
+        onHelpPress={openSettings}
       />
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.countingToggleCard}>
-          <View style={styles.countingToggleRow}>
-            <View style={styles.countingToggleText}>
-              <Text style={styles.countingToggleLabel}>
-                Mix card counting with basic strategy
-              </Text>
-              <Text style={styles.countingToggleHint}>
-                {cardCountingEnabled
-                  ? 'Basic strategy + Hi-Lo adjustments when the count warrants it'
-                  : 'Basic strategy only — count still tracked in the background'}
-              </Text>
-            </View>
-            <Switch
-              value={cardCountingEnabled}
-              onValueChange={setCardCountingEnabled}
-              trackColor={{ false: '#3d3d5c', true: '#2a8f88' }}
-              thumbColor={cardCountingEnabled ? '#4ECDC4' : '#888'}
-              ios_backgroundColor="#3d3d5c"
-            />
+        {cardCounter && cardCountingEnabled && (
+          <View style={styles.countStrip}>
+            <Text style={styles.countStripText}>
+              {formatCountLabel(cardCounter.runningCount, cardCounter.trueCount)}
+            </Text>
+            <Text style={styles.countStripSub}>{cardCounter.cardsRemaining} cards left</Text>
           </View>
-
-          {cardCounter && (
-            <View style={[
-              styles.countBadge,
-              !cardCountingEnabled && styles.countBadgeMuted,
-            ]}>
-              <Text style={[
-                styles.countBadgeText,
-                !cardCountingEnabled && styles.countBadgeTextMuted,
-              ]}>
-                {formatCountLabel(cardCounter.runningCount, cardCounter.trueCount)}
-              </Text>
-              <Text style={styles.countSubtext}>
-                {cardCountingEnabled
-                  ? `${cardCounter.cardsRemaining} cards left · count affects recommendations`
-                  : `${cardCounter.cardsRemaining} cards left · not affecting recommendations`}
-              </Text>
-            </View>
-          )}
-
-          {cardCountingEnabled && (
-            <TouchableOpacity style={styles.resetShoeButton} onPress={resetShoe}>
-              <Text style={styles.resetShoeButtonText}>New Shoe (Reset RC / TC)</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+        )}
 
         {/* Player Cards Section */}
         <View style={styles.section}>
@@ -345,7 +364,7 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
           
           <TouchableOpacity
             style={styles.changeDeckButton}
-            onPress={() => setShowDeckSelector(true)}
+            onPress={handleChangeDecks}
           >
             <Text style={styles.changeDeckButtonText}>Change Decks</Text>
           </TouchableOpacity>
@@ -376,9 +395,8 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
               </Text>
               {!isBusted && (
                 <Text style={styles.strategyModeLabel}>
-                  {cardCountingEnabled
-                    ? 'Basic strategy · count may adjust specific plays'
-                    : 'Basic strategy only'}
+                  {dealerHitsSoft17 ? 'H17' : 'S17'} basic strategy
+                  {cardCountingEnabled ? ' · count may adjust specific plays' : ''}
                 </Text>
               )}
               
@@ -416,13 +434,25 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
                     </Text>
                   </View>
 
-                  {deviationInfo && (
+                  {deviationInfo && (deviationInfo.deviated || deviationInfo.playFallbackReason) && (
                     <View style={styles.deviationBanner}>
-                      <Text style={styles.deviationTitle}>Count-adjusted play</Text>
-                      <Text style={styles.deviationText}>
-                        Basic strategy: {deviationInfo.basicAction} → {deviationInfo.action}
-                      </Text>
-                      <Text style={styles.deviationReason}>{deviationInfo.reason}</Text>
+                      {deviationInfo.deviated ? (
+                        <>
+                          <Text style={styles.deviationTitle}>Count-adjusted play</Text>
+                          <Text style={styles.deviationText}>
+                            Basic strategy: {deviationInfo.basicAction} → {deviationInfo.action}
+                          </Text>
+                          <Text style={styles.deviationReason}>{deviationInfo.reason}</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={styles.deviationTitle}>Table rule adjustment</Text>
+                          <Text style={styles.deviationText}>
+                            Ideal play: {deviationInfo.playFallback} → {deviationInfo.action}
+                          </Text>
+                          <Text style={styles.deviationReason}>{deviationInfo.playFallbackReason}</Text>
+                        </>
+                      )}
                     </View>
                   )}
                   
@@ -509,6 +539,7 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
         </View>
       </Modal>
 
+      {settingsDrawer}
     </SafeAreaView>
   );
 }
@@ -520,6 +551,26 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
+  },
+  countStrip: {
+    backgroundColor: '#16213e',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#0f3460',
+  },
+  countStripText: {
+    color: '#4ECDC4',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  countStripSub: {
+    color: '#888',
+    fontSize: 12,
+    marginTop: 2,
   },
   deckSelectorContainer: {
     flex: 1,
@@ -843,14 +894,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
-  },
-  countingToggleCard: {
-    backgroundColor: '#16213e',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#0f3460',
   },
   countingToggleRow: {
     flexDirection: 'row',

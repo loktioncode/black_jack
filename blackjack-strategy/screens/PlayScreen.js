@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import AppHeader from '../components/AppHeader';
 import DeckSelector from '../components/DeckSelector';
-import HintDrawer from '../components/HintDrawer';
+import SettingsDrawer from '../components/SettingsDrawer';
+import StatsDrawer from '../components/StatsDrawer';
 import PlayingCard from '../components/PlayingCard';
 import { BasicStrategy, Hand, Actions, getActionDescription } from '../utils/basicStrategy';
 import { CardCounter, getAdjustedRecommendation } from '../utils/cardCounting';
@@ -33,6 +34,16 @@ import {
   playerStand,
   startRound,
 } from '../utils/gameEngine';
+import { canDoubleHand, canSplitHand, DEFAULT_TABLE_RULES } from '../utils/tableRules';
+import { loadDealerHitsSoft17, saveDealerHitsSoft17 } from '../utils/tableRulePrefs';
+import {
+  applyRoundResults,
+  emptyPracticeStats,
+  loadPracticeStats,
+  savePracticeStats,
+} from '../services/practiceStats';
+
+const STARTING_BANKROLL = 1000;
 
 function hintActionLabel(action) {
   switch (action) {
@@ -51,17 +62,67 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
   const [cardCountingEnabled, setCardCountingEnabled] = useState(false);
   const [showHints, setShowHints] = useState(true);
   const [hintDrawerOpen, setHintDrawerOpen] = useState(false);
+  const [statsDrawerOpen, setStatsDrawerOpen] = useState(false);
+  const [dealerHitsSoft17, setDealerHitsSoft17] = useState(true);
+  const [practiceStats, setPracticeStats] = useState(emptyPracticeStats());
   const [dealKey, setDealKey] = useState(0);
   const pulse = useRef(new Animated.Value(1)).current;
+  const lastRecordedHandRef = useRef(0);
 
-  const strategy = useMemo(() => new BasicStrategy(true), []);
+  const dealerHitsSoft17FromGame = game?.rules?.dealerHitsSoft17 ?? dealerHitsSoft17;
+  const strategy = useMemo(
+    () => new BasicStrategy(dealerHitsSoft17FromGame),
+    [dealerHitsSoft17FromGame]
+  );
 
   useEffect(() => {
-    if (deckSize) {
-      setCardCounter(new CardCounter(deckSize));
-      setGame(createInitialGameState(deckSize));
-    }
-  }, [deckSize]);
+    loadDealerHitsSoft17(true).then(setDealerHitsSoft17);
+  }, []);
+
+  const selectDeckSize = useCallback((size) => {
+    lastRecordedHandRef.current = 0;
+    setDeckSize(size);
+    setCardCounter(new CardCounter(size));
+    setGame(createInitialGameState(size, STARTING_BANKROLL, 10, {
+      ...DEFAULT_TABLE_RULES,
+      dealerHitsSoft17,
+    }));
+  }, [dealerHitsSoft17]);
+
+  const handleDealerRuleChange = useCallback((hitsSoft17) => {
+    setDealerHitsSoft17(hitsSoft17);
+    saveDealerHitsSoft17(hitsSoft17);
+    setGame((prev) => {
+      if (!prev) return prev;
+      return { ...prev, rules: { ...prev.rules, dealerHitsSoft17: hitsSoft17 } };
+    });
+  }, []);
+
+  useEffect(() => {
+    loadPracticeStats().then(setPracticeStats);
+  }, []);
+
+  const recordRound = useCallback((roundResults) => {
+    if (!roundResults?.length) return;
+    setPracticeStats((prev) => {
+      const next = applyRoundResults(prev, roundResults);
+      savePracticeStats(next);
+      return next;
+    });
+  }, []);
+
+  const resetPracticeStats = useCallback(() => {
+    const cleared = emptyPracticeStats();
+    setPracticeStats(cleared);
+    savePracticeStats(cleared);
+  }, []);
+
+  useEffect(() => {
+    if (!game || game.phase !== PHASES.RESULT || !game.roundResults?.length) return;
+    if (lastRecordedHandRef.current === game.handsPlayed) return;
+    lastRecordedHandRef.current = game.handsPlayed;
+    recordRound(game.roundResults);
+  }, [game, recordRound]);
 
   const trackCards = useCallback(
     (cards) => {
@@ -142,14 +203,21 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
     if (!hand?.cards.length || !up) return null;
     const h = new Hand(cardsToRanks(hand.cards));
     const tc = cardCountingEnabled && cardCounter ? cardCounter.trueCount : null;
-    return getAdjustedRecommendation(strategy, h, up, tc);
+    return getAdjustedRecommendation(strategy, h, up, tc, {
+      canDouble: canDoubleHand(game, game.rules),
+      canSplit: canSplitHand(game, game.rules),
+    });
   }, [game, cardCountingEnabled, cardCounter, strategy]);
 
   if (!deckSize) {
     return (
       <SafeAreaView style={styles.container}>
-        <AppHeader onMenuPress={onOpenDrawer} onBackPress={onBack} subtitle="Play" />
-        <DeckSelector title="Practice Table" onSelect={setDeckSize} rulesNote="Vegas rules: H17, 3:2 BJ, double any two cards, DAS, split aces one card, dealer peek" />
+        <AppHeader onMenuPress={onOpenDrawer} onBackPress={onBack} subtitle="Play" onHelpPress={() => setHintDrawerOpen(true)} />
+        <DeckSelector
+          title="Practice Table"
+          onSelect={selectDeckSize}
+          rulesNote={`${dealerHitsSoft17 ? 'H17' : 'S17'} · 3:2 BJ · double any two cards · DAS · split aces one card · dealer peek`}
+        />
       </SafeAreaView>
     );
   }
@@ -175,6 +243,7 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
   ].filter(Boolean).join(' · ');
   const hintBlocked =
     hint &&
+    !hint.playFallback &&
     ((hint.action === Actions.DOUBLE && !doubleAllowed) ||
       (hint.action === Actions.SPLIT && !splitAllowed) ||
       (hint.action === Actions.HIT && !hitAllowed));
@@ -191,6 +260,7 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
         onMenuPress={onOpenDrawer}
         onBackPress={onBack}
         subtitle={`${deckSize} decks · $${game.bankroll} · $${game.bet} bet`}
+        onStatsPress={() => setStatsDrawerOpen(true)}
         onHelpPress={() => setHintDrawerOpen(true)}
       />
 
@@ -305,6 +375,9 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
               </Text>
             </>
           )}
+          {hint.playFallbackReason && (
+            <Text style={styles.tableHintFallback}>{hint.playFallbackReason}</Text>
+          )}
           <View style={styles.tableHintBasicRow}>
             <Text style={styles.tableHintBasicLabel}>Basic strategy</Text>
             <Text style={styles.tableHintBasicText}>
@@ -366,15 +439,27 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
         </View>
       </View>
 
-      <HintDrawer
+      <SettingsDrawer
         visible={hintDrawerOpen}
         onClose={() => setHintDrawerOpen(false)}
+        variant="practice"
         showHints={showHints}
         onShowHintsChange={setShowHints}
         cardCountingEnabled={cardCountingEnabled}
         onCardCountingChange={setCardCountingEnabled}
         cardCounter={cardCounter}
         tableRules={tableRules}
+        dealerHitsSoft17={dealerHitsSoft17FromGame}
+        onDealerHitsSoft17Change={handleDealerRuleChange}
+      />
+
+      <StatsDrawer
+        visible={statsDrawerOpen}
+        onClose={() => setStatsDrawerOpen(false)}
+        stats={practiceStats}
+        onReset={resetPracticeStats}
+        bankroll={game.bankroll}
+        startingBankroll={STARTING_BANKROLL}
       />
     </SafeAreaView>
   );
@@ -518,6 +603,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 4,
     fontWeight: '600',
+  },
+  tableHintFallback: {
+    color: '#f1c40f',
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   controlsWrap: {
     marginTop: 16,

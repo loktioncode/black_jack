@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function AppHeader({ onMenuPress, onBackPress, subtitle, rightContent, onHelpPress }) {
+export default function AppHeader({ onMenuPress, onBackPress, subtitle, rightContent, onStatsPress, onHelpPress }) {
   return (
     <View style={styles.header}>
       {onBackPress ? (
@@ -23,8 +23,13 @@ export default function AppHeader({ onMenuPress, onBackPress, subtitle, rightCon
 
       <View style={styles.right}>
         {rightContent}
+        {onStatsPress ? (
+          <TouchableOpacity style={styles.iconButton} onPress={onStatsPress} hitSlop={10}>
+            <Ionicons name="stats-chart-outline" size={26} color="#4ECDC4" />
+          </TouchableOpacity>
+        ) : null}
         {onHelpPress ? (
-          <TouchableOpacity style={styles.helpButton} onPress={onHelpPress} hitSlop={10}>
+          <TouchableOpacity style={styles.iconButton} onPress={onHelpPress} hitSlop={10}>
             <Ionicons name="help-circle-outline" size={28} color="#4ECDC4" />
           </TouchableOpacity>
         ) : null}
@@ -73,7 +78,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 8,
   },
-  helpButton: {
+  iconButton: {
     width: 36,
     height: 36,
     justifyContent: 'center',

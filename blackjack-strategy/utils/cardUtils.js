@@ -38,3 +38,16 @@ export function cardToRank(card) {
 export function cardsToRanks(cards) {
   return cards.map(cardToRank);
 }
+
+export function isTenValue(card) {
+  return ['10', 'J', 'Q', 'K'].includes(card);
+}
+
+export function pairRank(card) {
+  if (isTenValue(card)) return '10';
+  return card;
+}
+
+export function pairValuesMatch(a, b) {
+  return pairRank(a) === pairRank(b);
+}

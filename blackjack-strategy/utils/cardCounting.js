@@ -122,14 +122,44 @@ function applyDeviations(playerHand, dealerCard, basicAction, trueCount) {
   return { action: basicAction, deviated: false, basicAction, reason: null };
 }
 
-export function getAdjustedRecommendation(strategy, playerHand, dealerCard, trueCount) {
+export function getAdjustedRecommendation(strategy, playerHand, dealerCard, trueCount, playOptions = null) {
   const basicAction = strategy.getBasicRecommendation(playerHand, dealerCard);
 
+  let result;
   if (trueCount === null || trueCount === undefined) {
-    return { action: basicAction, deviated: false, basicAction, reason: null };
+    result = { action: basicAction, deviated: false, basicAction, reason: null };
+  } else {
+    result = applyDeviations(playerHand, dealerCard, basicAction, trueCount);
   }
 
-  return applyDeviations(playerHand, dealerCard, basicAction, trueCount);
+  if (playOptions) {
+    const resolved = strategy.resolvePlayAction(
+      playerHand,
+      dealerCard,
+      result.action,
+      playOptions
+    );
+    if (resolved !== result.action) {
+      result = {
+        ...result,
+        action: resolved,
+        playFallback: result.action,
+        playFallbackReason: fallbackReason(result.action, resolved, playOptions),
+      };
+    }
+  }
+
+  return result;
+}
+
+function fallbackReason(original, resolved, { canDouble, canSplit }) {
+  if (original === Actions.DOUBLE && resolved === Actions.HIT && !canDouble) {
+    return 'Double not available — hit instead';
+  }
+  if (original === Actions.SPLIT && !canSplit) {
+    return 'Split not available — playing as hard/soft total';
+  }
+  return null;
 }
 
 export function formatCountLabel(runningCount, trueCount) {
