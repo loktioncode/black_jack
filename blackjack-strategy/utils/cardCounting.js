@@ -167,3 +167,58 @@ export function formatCountLabel(runningCount, trueCount) {
   const tc = trueCount >= 0 ? `+${trueCount}` : `${trueCount}`;
   return `RC ${rc} · TC ${tc}`;
 }
+
+function formatTrueCount(tc) {
+  return tc >= 0 ? `+${tc}` : `${tc}`;
+}
+
+// Hi-Lo bet spread: increase units once the shoe favors the player (TC >= +2).
+export function getBetSuggestion(trueCount, baseBet = 10, bankroll = null, currentBet = null) {
+  if (trueCount === null || trueCount === undefined) return null;
+
+  let units = 1;
+  let hasAdvantage = false;
+  let reason;
+
+  if (trueCount >= 4) {
+    units = 4;
+    hasAdvantage = true;
+    reason = `TC ${formatTrueCount(trueCount)}: strong player edge`;
+  } else if (trueCount >= 3) {
+    units = 3;
+    hasAdvantage = true;
+    reason = `TC ${formatTrueCount(trueCount)}: good player edge`;
+  } else if (trueCount >= 2) {
+    units = 2;
+    hasAdvantage = true;
+    reason = `TC ${formatTrueCount(trueCount)}: player advantage — double your bet`;
+  } else if (trueCount >= 1) {
+    reason = `TC ${formatTrueCount(trueCount)}: slight edge — stay at min bet`;
+  } else {
+    reason = `TC ${formatTrueCount(trueCount)}: house edge — min bet only`;
+  }
+
+  const rawBet = baseBet * units;
+  const suggestedBet = bankroll != null ? Math.min(rawBet, bankroll) : rawBet;
+  const shouldIncrease = hasAdvantage && (currentBet == null || currentBet < suggestedBet);
+  const shouldDecrease = !hasAdvantage && currentBet != null && currentBet > baseBet;
+
+  return {
+    trueCount,
+    hasAdvantage,
+    units,
+    baseBet,
+    suggestedBet,
+    shouldIncrease,
+    shouldDecrease,
+    reason,
+  };
+}
+
+export function formatBetSuggestion(suggestion) {
+  if (!suggestion) return null;
+  if (suggestion.shouldIncrease) {
+    return `Bet $${suggestion.suggestedBet} (${suggestion.units}× min)`;
+  }
+  return `Min bet $${suggestion.baseBet}`;
+}

@@ -14,7 +14,12 @@ import SettingsDrawer from '../components/SettingsDrawer';
 import StatsDrawer from '../components/StatsDrawer';
 import PlayingCard from '../components/PlayingCard';
 import { BasicStrategy, Hand, Actions, getActionDescription } from '../utils/basicStrategy';
-import { CardCounter, getAdjustedRecommendation } from '../utils/cardCounting';
+import {
+  CardCounter,
+  formatBetSuggestion,
+  getAdjustedRecommendation,
+  getBetSuggestion,
+} from '../utils/cardCounting';
 import { cardsToRanks } from '../utils/cardUtils';
 import {
   PHASES,
@@ -32,6 +37,7 @@ import {
   playerHit,
   playerSplit,
   playerStand,
+  setTableBet,
   startRound,
 } from '../utils/gameEngine';
 import {
@@ -48,6 +54,7 @@ import {
 } from '../services/practiceStats';
 
 const STARTING_BANKROLL = 1000;
+const BASE_BET = 10;
 
 function hintActionLabel(action) {
   switch (action) {
@@ -81,7 +88,7 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
     lastRecordedHandRef.current = 0;
     setDeckSize(size);
     setCardCounter(new CardCounter(size));
-    setGame(createInitialGameState(size, STARTING_BANKROLL, 10, DEFAULT_TABLE_RULES));
+    setGame(createInitialGameState(size, STARTING_BANKROLL, BASE_BET, DEFAULT_TABLE_RULES));
   }, []);
 
   useEffect(() => {
@@ -194,6 +201,23 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
       canSplit: canSplitHand(game, game.rules),
     });
   }, [game, cardCountingEnabled, cardCounter, strategy]);
+
+  const betSuggestion = useMemo(() => {
+    if (!game || !cardCountingEnabled || !cardCounter) return null;
+    if (game.phase !== PHASES.SETUP && game.phase !== PHASES.RESULT) return null;
+    return getBetSuggestion(cardCounter.trueCount, BASE_BET, game.bankroll, game.bet);
+  }, [game, cardCountingEnabled, cardCounter]);
+
+  const applySuggestedBet = useCallback(() => {
+    if (!betSuggestion) return;
+    const amount = betSuggestion.shouldIncrease
+      ? betSuggestion.suggestedBet
+      : betSuggestion.shouldDecrease
+        ? betSuggestion.baseBet
+        : null;
+    if (amount == null) return;
+    setGame((prev) => setTableBet(prev, amount));
+  }, [betSuggestion]);
 
   if (!deckSize) {
     return (
@@ -326,6 +350,28 @@ export default function PlayScreen({ onOpenDrawer, onBack }) {
           </View>
         </Animated.View>
       </View>
+
+      {betSuggestion && (
+        <View style={[styles.betSuggestionBar, betSuggestion.shouldIncrease && styles.betSuggestionBarHot]}>
+          <Text style={styles.betSuggestionLabel}>Count bet</Text>
+          <Text style={styles.betSuggestionText}>{formatBetSuggestion(betSuggestion)}</Text>
+          <Text style={styles.betSuggestionReason}>{betSuggestion.reason}</Text>
+          {betSuggestion.shouldIncrease && (
+            <TouchableOpacity style={styles.betSuggestionBtn} onPress={applySuggestedBet}>
+              <Text style={styles.betSuggestionBtnText}>
+                Set bet to ${betSuggestion.suggestedBet}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {betSuggestion.shouldDecrease && (
+            <TouchableOpacity style={[styles.betSuggestionBtn, styles.betSuggestionBtnMuted]} onPress={applySuggestedBet}>
+              <Text style={styles.betSuggestionBtnTextMuted}>
+                Back to min bet (${betSuggestion.baseBet})
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       <View style={styles.messageBar}>
         <Text style={styles.messageText}>{game.message}</Text>
@@ -510,6 +556,60 @@ const styles = StyleSheet.create({
   handLabel: { color: '#4ECDC4', fontSize: 12, marginBottom: 4 },
   handRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', minHeight: 92 },
   handValue: { color: '#fff', fontSize: 14, fontWeight: '600', marginTop: 6 },
+  betSuggestionBar: {
+    marginHorizontal: 12,
+    marginTop: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+  },
+  betSuggestionBarHot: {
+    borderColor: 'rgba(241,196,15,0.6)',
+    backgroundColor: 'rgba(241,196,15,0.08)',
+  },
+  betSuggestionLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  betSuggestionText: {
+    color: '#f1c40f',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  betSuggestionReason: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  betSuggestionBtn: {
+    marginTop: 8,
+    backgroundColor: '#f1c40f',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  betSuggestionBtnMuted: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  betSuggestionBtnText: {
+    color: '#1a1a2e',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  betSuggestionBtnTextMuted: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   messageBar: { paddingHorizontal: 16, paddingVertical: 8, alignItems: 'center' },
   messageText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   resultText: { color: '#4ECDC4', fontSize: 13, marginTop: 4 },

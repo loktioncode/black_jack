@@ -11,7 +11,13 @@ import {
   Alert,
 } from 'react-native';
 import { BasicStrategy, Hand, Actions, getActionDescription } from '../utils/basicStrategy';
-import { CardCounter, getAdjustedRecommendation, formatCountLabel } from '../utils/cardCounting';
+import {
+  CardCounter,
+  formatBetSuggestion,
+  formatCountLabel,
+  getAdjustedRecommendation,
+  getBetSuggestion,
+} from '../utils/cardCounting';
 import { CARDS } from '../utils/cardUtils';
 import { DEFAULT_TABLE_RULES, getDefaultRulesNote, getRuleSummary } from '../utils/tableRules';
 import AppHeader from '../components/AppHeader';
@@ -21,6 +27,7 @@ import { loadDealerHitsSoft17, saveDealerHitsSoft17 } from '../utils/tableRulePr
 
 const HANDS_BEFORE_COUNTING_PROMPT = 10;
 const BUST_AUTO_RESET_MS = 2500;
+const STRATEGY_BASE_BET = 10;
 
 export default function StrategyScreen({ onOpenDrawer, onBack }) {
   const [deckSize, setDeckSize] = useState(null);
@@ -63,6 +70,11 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
     () => getRuleSummary({ ...DEFAULT_TABLE_RULES, dealerHitsSoft17 }),
     [dealerHitsSoft17]
   );
+
+  const betSuggestion = useMemo(() => {
+    if (!cardCountingEnabled || !cardCounter || playerCards.length > 0) return null;
+    return getBetSuggestion(cardCounter.trueCount, STRATEGY_BASE_BET);
+  }, [cardCountingEnabled, cardCounter, playerCards.length]);
 
   const openSettings = useCallback(() => setSettingsDrawerOpen(true), []);
 
@@ -291,6 +303,13 @@ export default function StrategyScreen({ onOpenDrawer, onBack }) {
               {formatCountLabel(cardCounter.runningCount, cardCounter.trueCount)}
             </Text>
             <Text style={styles.countStripSub}>{cardCounter.cardsRemaining} cards left</Text>
+            {betSuggestion && (
+              <View style={[styles.betSuggestionBox, betSuggestion.shouldIncrease && styles.betSuggestionBoxHot]}>
+                <Text style={styles.betSuggestionTitle}>Bet sizing</Text>
+                <Text style={styles.betSuggestionAmount}>{formatBetSuggestion(betSuggestion)}</Text>
+                <Text style={styles.betSuggestionReason}>{betSuggestion.reason}</Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -575,6 +594,36 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 12,
     marginTop: 2,
+  },
+  betSuggestionBox: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.12)',
+    width: '100%',
+    alignItems: 'center',
+  },
+  betSuggestionBoxHot: {
+    borderTopColor: 'rgba(241,196,15,0.35)',
+  },
+  betSuggestionTitle: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  betSuggestionAmount: {
+    color: '#f1c40f',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  betSuggestionReason: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: 'center',
   },
   deckSelectorContainer: {
     flex: 1,

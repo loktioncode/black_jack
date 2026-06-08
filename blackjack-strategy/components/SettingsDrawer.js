@@ -80,7 +80,7 @@ export default function SettingsDrawer({
               <Text style={styles.settingLabel}>Mix counting with basic strategy</Text>
               {isStrategy && (
                 <Text style={styles.settingHint}>
-                  Hi-Lo RC/TC adjusts specific plays when the count warrants it
+                  Hi-Lo RC/TC adjusts plays and suggests when to raise your bet
                 </Text>
               )}
             </View>
@@ -99,7 +99,7 @@ export default function SettingsDrawer({
               </Text>
               <Text style={styles.countSub}>
                 {cardCountingEnabled
-                  ? `${cardCounter.cardsRemaining} cards left · count affects recommendations`
+                  ? `${cardCounter.cardsRemaining} cards left · plays & bet sizing`
                   : `${cardCounter.cardsRemaining} cards left · tracked only`}
               </Text>
             </View>
@@ -131,7 +131,7 @@ export default function SettingsDrawer({
           <Text style={styles.note}>
             {isStrategy
               ? 'Pick your cards on the main screen. Open Settings anytime to change H17/S17 or counting.'
-              : 'When hints are on, recommendations appear above the action buttons during your turn.'}
+              : 'When hints are on, play advice appears during your turn. With counting on, bet sizing shows before each deal.'}
           </Text>
         </ScrollView>
       </Animated.View>

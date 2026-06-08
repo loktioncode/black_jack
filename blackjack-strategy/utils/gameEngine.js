@@ -95,6 +95,16 @@ function blackjackPayout(bet, rules) {
   return Math.floor(bet * rules.blackjackPays);
 }
 
+export function setTableBet(state, bet) {
+  const amount = Math.floor(bet);
+  if (amount < 1) return state;
+  if (state.phase !== PHASES.SETUP && state.phase !== PHASES.RESULT) return state;
+  if (amount > state.bankroll) {
+    return { ...state, message: 'Not enough chips for that bet' };
+  }
+  return { ...state, bet: amount, message: `Bet set to $${amount}` };
+}
+
 export function createInitialGameState(deckCount, bankroll = 1000, bet = 10, rules = DEFAULT_TABLE_RULES) {
   return {
     phase: PHASES.SETUP,
